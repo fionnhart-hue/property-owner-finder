@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Settings — Property Owner Finder</title>
+    <style>
+        :root {
+            --bg: #f8f9fa; --card: #ffffff; --primary: #1a1a2e;
+            --accent: #e94560; --text: #2d2d2d; --text-light: #6c757d;
+            --border: #e0e0e0; --success: #28a745; --warning: #ffc107; --radius: 10px;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg); color: var(--text); line-height: 1.6;
+        }
+        .container { max-width: 800px; margin: 0 auto; padding: 0 24px; }
+        header { background: var(--primary); color: white; padding: 24px 0; margin-bottom: 32px; }
+        header h1 { font-size: 24px; font-weight: 700; }
+        header p { color: #adb5bd; font-size: 14px; margin-top: 4px; }
+        header a { color: var(--accent); text-decoration: none; }
+        header a:hover { text-decoration: underline; }
+
+        .card {
+            background: var(--card); border-radius: var(--radius);
+            padding: 28px; border: 1px solid var(--border); margin-bottom: 24px;
+        }
+        .card h2 { font-size: 18px; margin-bottom: 4px; }
+        .card .subtitle { font-size: 14px; color: var(--text-light); margin-bottom: 20px; }
+
+        .step-num {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 28px; height: 28px; border-radius: 50%; background: var(--accent);
+            color: white; font-size: 14px; font-weight: 700; margin-right: 10px; flex-shrink: 0;
+        }
+        .step { display: flex; align-items: flex-start; margin-bottom: 20px; }
+        .step-content { flex: 1; }
+        .step-content p { font-size: 14px; margin-bottom: 8px; }
+        .step-content a { color: var(--accent); }
+
+        .status-badge {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 4px 12px; border-radius: 12px; font-size: 13px; font-weight: 600;
+        }
+        .status-badge.ok { background: #e8f5e9; color: #2e7d32; }
+        .status-badge.missing { background: #fff3e0; color: #e65100; }
+
+        .upload-zone {
+            border: 2px dashed var(--border); border-radius: var(--radius);
+            padding: 40px 20px; text-align: center; cursor: pointer;
+            transition: all 0.2s; margin-top: 12px;
+        }
+        .upload-zone:hover, .upload-zone.dragover {
+            border-color: var(--accent); background: #fce4ec;
+        }
+        .upload-zone input { display: none; }
+        .upload-zone h3 { font-size: 16px; margin-bottom: 4px; }
+        .upload-zone p { font-size: 13px; color: var(--text-light); }
+
+        .upload-progress {
+            margin-top: 12px; display: none;
+        }
+        .upload-progress.active { display: block; }
+        .upload-progress .bar {
+            width: 100%; height: 6px; background: var(--border);
+            border-radius: 3px; overflow: hidden;
+        }
+        .upload-progress .fill {
+            height: 100%; background: var(--accent); border-radius: 3px;
+            transition: width 0.3s; width: 0%;
+        }
+        .upload-progress .label {
+            font-size: 13px; color: var(--text-light); margin-top: 6px;
+        }
+
+        .upload-result {
+            margin-top: 12px; padding: 12px 16px; border-radius: 8px;
+            font-size: 14px; display: none;
+        }
+        .upload-result.success { display: block; background: #e8f5e9; color: #2e7d32; }
+        .upload-result.error { display: block; background: #ffebee; color: #c62828; }
+
+        .info-box {
+            background: #e3f2fd; border-left: 4px solid #2196f3;
+            padding: 12px 16px; border-radius: 0 8px 8px 0;
+            font-size: 13px; color: #1565c0; margin-top: 16px;
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <div class="container">
+        <h1>Settings</h1>
+        <p><a href="/">← Back to Property Owner Finder</a></p>
+    </div>
+</header>
+
+<div class="container">
+
+    <!-- Current Status -->
+    <div class="card">
+        <h2>Data Sources Status</h2>
+        <p class="subtitle">Shows what's connected and ready to use.</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;" id="statusGrid">
+            <div>Companies House API: <span class="status-badge missing" id="sCH">Checking…</span></div>
+            <div>CCOD (UK companies): <span class="status-badge missing" id="sCCOD">Checking…</span></div>
+            <div>LR Business Gateway: <span class="status-badge missing" id="sLR">Checking…</span></div>
+            <div>OCOD (Overseas co.): <span class="status-badge missing" id="sOCOD">Checking…</span></div>
+        </div>
+    </div>
+
+    <!-- Step 1: Companies House -->
+    <div class="card">
+        <h2>Step 1 — Companies House API Key</h2>
+        <p class="subtitle">Free. Gives you company search, director names, and ownership details.</p>
+        <div class="step">
+            <span class="step-num">1</span>
+            <div class="step-content">
+                <p>Go to <a href="https://developer.company-information.service.gov.uk/" target="_blank">developer.company-information.service.gov.uk</a></p>
+                <p>Register with your Appear Here email, then click <strong>"Create an application"</strong>.</p>
+            </div>
+        </div>
+        <div class="step">
+            <span class="step-num">2</span>
+            <div class="step-content">
+                <p>Select <strong>Live</strong> environment. Name it anything (e.g. "Property Owner Finder").</p>
+                <p>Your API key will appear — copy it.</p>
+            </div>
+        </div>
+        <div class="step">
+            <span class="step-num">3</span>
+            <div class="step-content">
+                <p>Give the API key to whoever deployed this app. They need to add it as an environment variable called <code>COMPANIES_HOUSE_API_KEY</code> in the hosting dashboard (e.g. Railway → Variables).</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Step 2: CCOD/OCOD -->
+    <div class="card">
+        <h2>Step 2 — Land Registry Data (CCOD & OCOD)</h2>
+        <p class="subtitle">Free. Lists every UK property owned by a company. This is the big one.</p>
+        <div class="step">
+            <span class="step-num">1</span>
+            <div class="step-content">
+                <p>Go to <a href="https://use-land-property-data.service.gov.uk/" target="_blank">use-land-property-data.service.gov.uk</a></p>
+                <p>Sign in (create a free account with your Appear Here email).</p>
+            </div>
+        </div>
+        <div class="step">
+            <span class="step-num">2</span>
+            <div class="step-content">
+                <p>Download these two datasets:</p>
+                <p><strong>• "UK companies that own property in England and Wales"</strong> (CCOD) — ~1GB file<br>
+                   <strong>• "Overseas companies that own property in England and Wales"</strong> (OCOD) — smaller file</p>
+            </div>
+        </div>
+        <div class="step">
+            <span class="step-num">3</span>
+            <div class="step-content">
+                <p>Upload them here (one at a time). The CCOD file is large so it may take a minute.</p>
+            </div>
+        </div>
+
+        <!-- CCOD Upload -->
+        <div style="margin-top:16px;">
+            <strong style="font-size:14px;">Upload CCOD file (UK companies)</strong>
+            <div class="upload-zone" id="ccodZone" onclick="document.getElementById('ccodInput').click()">
+                <input type="file" id="ccodInput" accept=".csv" onchange="uploadFile(this.files[0], 'ccod')">
+                <h3>Drop CCOD CSV here or click to browse</h3>
+                <p>File will be named something like CCOD_FULL_2026_03.csv</p>
+            </div>
+            <div class="upload-progress" id="ccodProgress">
+                <div class="bar"><div class="fill" id="ccodFill"></div></div>
+                <div class="label" id="ccodLabel">Uploading…</div>
+            </div>
+            <div class="upload-result" id="ccodResult"></div>
+        </div>
+
+        <!-- OCOD Upload -->
+        <div style="margin-top:24px;">
+            <strong style="font-size:14px;">Upload OCOD file (Overseas companies)</strong>
+            <div class="upload-zone" id="ocodZone" onclick="document.getElementById('ocodInput').click()">
+                <input type="file" id="ocodInput" accept=".csv" onchange="uploadFile(this.files[0], 'ocod')">
+                <h3>Drop OCOD CSV here or click to browse</h3>
+                <p>File will be named something like OCOD_FULL_2026_03.csv</p>
+            </div>
+            <div class="upload-progress" id="ocodProgress">
+                <div class="bar"><div class="fill" id="ocodFill"></div></div>
+                <div class="label" id="ocodLabel">Uploading…</div>
+            </div>
+            <div class="upload-result" id="ocodResult"></div>
+        </div>
+
+        <div class="info-box">
+            These datasets are updated monthly by Land Registry. Re-upload fresh copies on the 1st of each month for the most current ownership data.
+        </div>
+    </div>
+
+    <!-- Step 3: LR Gateway (optional) -->
+    <div class="card">
+        <h2>Step 3 (Optional) — Land Registry Business Gateway</h2>
+        <p class="subtitle">For automated title searches on individually-owned properties. £3 per search. Most teams won't need this.</p>
+        <div class="step">
+            <span class="step-num">1</span>
+            <div class="step-content">
+                <p>Apply at <a href="https://www.gov.uk/guidance/hm-land-registry-business-gateway" target="_blank">gov.uk/guidance/hm-land-registry-business-gateway</a></p>
+                <p>Approval takes 2-4 weeks. Once approved, add <code>LR_BUSINESS_GATEWAY_USER</code> and <code>LR_BUSINESS_GATEWAY_PASS</code> as environment variables in your hosting dashboard.</p>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script>
+const API_BASE = window.location.origin;
+
+// Status check
+async function checkStatus() {
+    try {
+        const resp = await fetch(`${API_BASE}/api/status`);
+        const data = await resp.json();
+        setStatusBadge('sCH', data.companies_house_configured, 'Connected', 'Not set');
+        setStatusBadge('sLR', data.land_registry_gateway_configured, 'Connected', 'Not set (optional)');
+        if (data.ccod_loaded > 0) {
+            setBadge('sCCOD', 'ok', `${data.ccod_loaded.toLocaleString()} records`);
+        } else {
+            setBadge('sCCOD', 'missing', 'Not uploaded');
+        }
+        if (data.ocod_loaded > 0) {
+            setBadge('sOCOD', 'ok', `${data.ocod_loaded.toLocaleString()} records`);
+        } else {
+            setBadge('sOCOD', 'missing', 'Not uploaded');
+        }
+    } catch { /* ignore */ }
+}
+
+function setStatusBadge(id, ok, yesText, noText) {
+    setBadge(id, ok ? 'ok' : 'missing', ok ? yesText : noText);
+}
+
+function setBadge(id, cls, text) {
+    const el = document.getElementById(id);
+    el.className = `status-badge ${cls}`;
+    el.textContent = text;
+}
+
+// File upload
+async function uploadFile(file, type) {
+    if (!file) return;
+
+    const progress = document.getElementById(`${type}Progress`);
+    const fill = document.getElementById(`${type}Fill`);
+    const label = document.getElementById(`${type}Label`);
+    const result = document.getElementById(`${type}Result`);
+
+    progress.classList.add('active');
+    result.className = 'upload-result';
+    fill.style.width = '0%';
+    label.textContent = `Uploading ${file.name} (${(file.size / 1024 / 1024).toFixed(0)} MB)…`;
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', `${API_BASE}/api/upload-data`);
+
+        xhr.upload.onprogress = (e) => {
+            if (e.lengthComputable) {
+                const pct = (e.loaded / e.total * 100).toFixed(0);
+                fill.style.width = pct + '%';
+                label.textContent = `Uploading… ${pct}%`;
+            }
+        };
+
+        xhr.onload = () => {
+            progress.classList.remove('active');
+            if (xhr.status === 200) {
+                const data = JSON.parse(xhr.responseText);
+                result.className = 'upload-result success';
+                result.textContent = `Done! Loaded ${data.records?.toLocaleString() || 0} ${data.type} records from ${data.filename}.`;
+                checkStatus();
+            } else {
+                const data = JSON.parse(xhr.responseText);
+                result.className = 'upload-result error';
+                result.textContent = `Error: ${data.error || 'Upload failed'}`;
+            }
+        };
+
+        xhr.onerror = () => {
+            progress.classList.remove('active');
+            result.className = 'upload-result error';
+            result.textContent = 'Upload failed — check your connection and try again.';
+        };
+
+        // Timeout: 10 minutes for large files
+        xhr.timeout = 600000;
+        xhr.ontimeout = () => {
+            progress.classList.remove('active');
+            result.className = 'upload-result error';
+            result.textContent = 'Upload timed out. The file may be too large for your connection speed.';
+        };
+
+        label.textContent = `Uploading ${file.name}…`;
+        fill.style.width = '10%';
+        xhr.send(formData);
+
+    } catch (err) {
+        progress.classList.remove('active');
+        result.className = 'upload-result error';
+        result.textContent = `Error: ${err.message}`;
+    }
+}
+
+// Drag and drop
+for (const type of ['ccod', 'ocod']) {
+    const zone = document.getElementById(`${type}Zone`);
+    zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('dragover'); });
+    zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+    zone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        zone.classList.remove('dragover');
+        if (e.dataTransfer.files.length) uploadFile(e.dataTransfer.files[0], type);
+    });
+}
+
+checkStatus();
+</script>
+
+</body>
+</html>
