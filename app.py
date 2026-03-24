@@ -3,10 +3,10 @@ Property Owner Finder - Backend API (v2)
 Helps Appear Here's landlord team identify commercial property owners in London.
 
 Data sources:
-1. Companies House API (free) â companies registered at address, officers & PSCs
-2. Land Registry CCOD/OCOD datasets (free) â all UK/overseas company-owned property
-3. Land Registry Business Gateway API (paid, Â£3/search) â definitive title register
-4. LinkedIn â Google search links to find individuals
+1. Companies House API (free) Ã¢ÂÂ companies registered at address, officers & PSCs
+2. Land Registry CCOD/OCOD datasets (free) Ã¢ÂÂ all UK/overseas company-owned property
+3. Land Registry Business Gateway API (paid, ÃÂ£3/search) Ã¢ÂÂ definitive title register
+4. LinkedIn Ã¢ÂÂ Google search links to find individuals
 """
 
 import os
@@ -26,16 +26,16 @@ app = Flask(__name__, static_folder="static")
 CORS(app)
 app.config['MAX_CONTENT_LENGTH'] = 2 * 1024 * 1024 * 1024  # 2GB max upload
 
-# âââ Configuration âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+# Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Configuration Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
 
 COMPANIES_HOUSE_API_KEY = os.environ.get("COMPANIES_HOUSE_API_KEY", "")
 COMPANIES_HOUSE_BASE = "https://api.company-information.service.gov.uk"
 
-# Land Registry Business Gateway (optional â for automated title searches)
+# Land Registry Business Gateway (optional Ã¢ÂÂ for automated title searches)
 LR_BUSINESS_GATEWAY_USER = os.environ.get("LR_BUSINESS_GATEWAY_USER", "")
 LR_BUSINESS_GATEWAY_PASS = os.environ.get("LR_BUSINESS_GATEWAY_PASS", "")
 
-# Path to CCOD/OCOD CSV files (downloaded from Land Registry â free)
+# Path to CCOD/OCOD CSV files (downloaded from Land Registry Ã¢ÂÂ free)
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 
 # Rate limiting for Companies House API (600 requests per 5 minutes)
@@ -71,7 +71,7 @@ def ch_get(endpoint, params=None):
         return None, f"Connection error: {str(e)}"
 
 
-# âââ Address Helpers âââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+# Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Address Helpers Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
 
 def extract_postcode(address):
     match = re.search(r"[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}", address.upper())
@@ -84,7 +84,7 @@ def extract_street_components(address):
 
 
 def normalise_for_matching(text):
-    """Lowercase, strip punctuation, collapse whitespace â for fuzzy address matching."""
+    """Lowercase, strip punctuation, collapse whitespace Ã¢ÂÂ for fuzzy address matching."""
     text = text.lower()
     text = re.sub(r"[^\w\s]", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
@@ -127,7 +127,7 @@ def address_match_score(query_address, candidate_address):
     return score
 
 
-# âââ CCOD / OCOD Dataset Search (FREE Land Registry data) âââââââââââââââââââ
+# Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ CCOD / OCOD Dataset Search (FREE Land Registry data) Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
 
 _ccod_data = None
 _ocod_data = None
@@ -270,13 +270,13 @@ def search_ccod_ocod(address):
     return results[:10]
 
 
-# âââ Land Registry Business Gateway API âââââââââââââââââââââââââââââââââââââ
+# Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Land Registry Business Gateway API Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
 
 def lr_business_gateway_search(address):
     """
     Search Land Registry Business Gateway for title information.
     Requires approved Business Gateway account.
-    Uses the Property Description enquiry (Â£3 per search).
+    Uses the Property Description enquiry (ÃÂ£3 per search).
     """
     if not LR_BUSINESS_GATEWAY_USER or not LR_BUSINESS_GATEWAY_PASS:
         return None, "not_configured"
@@ -329,7 +329,7 @@ def lr_business_gateway_search(address):
 
         if resp.status_code == 200:
             # Parse XML response to extract title numbers and proprietor names
-            # (Simplified â full XML parsing would use lxml in production)
+            # (Simplified Ã¢ÂÂ full XML parsing would use lxml in production)
             import xml.etree.ElementTree as ET
             root = ET.fromstring(resp.text)
 
@@ -349,7 +349,7 @@ def lr_business_gateway_search(address):
         return None, f"Business Gateway connection error: {str(e)}"
 
 
-# âââ Companies House Lookups âââââââââââââââââââââââââââââââââââââââââââââââââ
+# Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Companies House Lookups Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
 
 def search_companies_by_address(address):
     results = []
@@ -478,7 +478,7 @@ def get_company_details(company_number):
     return data, None
 
 
-# âââ Cross-referencing logic âââââââââââââââââââââââââââââââââââââââââââââââââ
+# Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Cross-referencing logic Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
 
 def cross_reference_results(ch_companies, lr_results):
     """
@@ -544,7 +544,7 @@ def cross_reference_results(ch_companies, lr_results):
     return insights
 
 
-# âââ Link Generators âââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+# Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Link Generators Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
 
 def generate_land_registry_links(address):
     encoded = urllib.parse.quote(address)
@@ -568,7 +568,7 @@ def generate_linkedin_search(person_name, company_name=None, location="London"):
     return f"https://www.google.com/search?q={urllib.parse.quote(query)}"
 
 
-# âââ API Routes ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+# Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ API Routes Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
 
 @app.route("/")
 def index():
@@ -607,7 +607,7 @@ def lookup_property():
         "warnings": [],
     }
 
-    # ââ Source 1: CCOD/OCOD free datasets ââ
+    # Ã¢ÂÂÃ¢ÂÂ Source 1: CCOD/OCOD free datasets Ã¢ÂÂÃ¢ÂÂ
     lr_results = search_ccod_ocod(address)
     result["land_registry_data"] = lr_results
 
@@ -619,7 +619,7 @@ def lookup_property():
             if reg_no:
                 lr_company_numbers.add(reg_no)
 
-    # ââ Source 2: Land Registry Business Gateway (if configured) ââ
+    # Ã¢ÂÂÃ¢ÂÂ Source 2: Land Registry Business Gateway (if configured) Ã¢ÂÂÃ¢ÂÂ
     if LR_BUSINESS_GATEWAY_USER:
         gateway_results, gateway_err = lr_business_gateway_search(address)
         if gateway_err and gateway_err != "not_configured":
@@ -627,7 +627,7 @@ def lookup_property():
         elif gateway_results:
             result["land_registry_gateway"] = gateway_results
 
-    # ââ Source 3: Companies House ââ
+    # Ã¢ÂÂÃ¢ÂÂ Source 3: Companies House Ã¢ÂÂÃ¢ÂÂ
     ch_companies = []
     if COMPANIES_HOUSE_API_KEY:
         # Search for companies registered at the address
@@ -691,13 +691,13 @@ def lookup_property():
     else:
         result["warnings"].append("Companies House API key not set. Set COMPANIES_HOUSE_API_KEY for company lookups.")
 
-    # ââ Cross-reference ââ
+    # Ã¢ÂÂÃ¢ÂÂ Cross-reference Ã¢ÂÂÃ¢ÂÂ
     result["insights"] = cross_reference_results(ch_companies, lr_results)
 
     if not ch_companies and not lr_results:
         result["warnings"].append(
             "No ownership data found from any source. Use the Land Registry title search link "
-            "(Â£3) for definitive ownership â it covers all properties including individually owned ones."
+            "(ÃÂ£3) for definitive ownership Ã¢ÂÂ it covers all properties including individually owned ones."
         )
 
     return jsonify(result)
@@ -816,7 +816,7 @@ def load_from_url():
         return jsonify({"error": "No URL provided"}), 400
     # Extract Google Drive file ID from share URL
     import re as _re
-    gd = _re.search(r"/(?:file/d|open[?]id=)([a-zA-Z0-9_-]{20,})", url)
+    gd = _re.search(r"/(?:file/d/|open[?]id=)([a-zA-Z0-9_-]{20,})", url)
     if not gd:
         return jsonify({"error": "Could not find a Google Drive file ID in that URL"}), 400
     file_id = gd.group(1)
@@ -825,7 +825,7 @@ def load_from_url():
     session.headers["User-Agent"] = "Mozilla/5.0"
     base = "https://drive.google.com/uc"
     params = {"export": "download", "id": file_id}
-    # First request — Google may set a download_warning cookie for large files
+    # First request â Google may set a download_warning cookie for large files
     try:
         r1 = session.get(base, params=params, timeout=60)
         r1.raise_for_status()
@@ -893,7 +893,7 @@ def company_detail(company_number):
     return jsonify({"details": details, "officers": officers, "pscs": pscs})
 
 
-# âââ Main ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+# Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Main Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
