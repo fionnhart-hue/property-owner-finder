@@ -216,13 +216,17 @@
 <script>
         async function loadStatus() {
             try {
-                const r = await fetch('/api/data-status');
+                const r = await fetch('/api/status');
                 const d = await r.json();
-                const cb = document.getElementById('sCCOD');
-                const ob = document.getElementById('sOCOD');
-                if (cb) cb.textContent = d.ccod_loaded ? d.ccod_records + ' records loaded' : 'Not loaded';
-                if (ob) ob.textContent = d.ocod_loaded ? d.ocod_records + ' records loaded' : 'Not loaded';
-            } catch(e) {}
+                const cEl = document.getElementById('sCCOD');
+                const oEl = document.getElementById('sOCOD');
+                const chEl = document.getElementById('sCH');
+                if (cEl) cEl.textContent = d.ccod_loaded ? d.ccod_loaded.toLocaleString() + ' records loaded' : 'Not loaded — upload below';
+                if (oEl) oEl.textContent = d.ocod_loaded ? d.ocod_loaded.toLocaleString() + ' records loaded' : 'Not loaded — upload below';
+                if (chEl) chEl.textContent = d.companies_house_configured ? 'Configured' : 'Not configured';
+            } catch(e) {
+                console.error('Status error:', e);
+            }
         }
 
         async function uploadFile(file, type) {
@@ -234,8 +238,8 @@
             const fill  = document.getElementById(prefix + 'Fill');
             const label = document.getElementById(prefix + 'Label');
 
-            if (prog) prog.style.display = 'block';
-            if (label) label.textContent = 'Starting upload...';
+            if (prog)  prog.style.display = 'block';
+            if (label) label.textContent = 'Starting...';
 
             for (let i = 0; i < totalChunks; i++) {
                 const start = i * CHUNK_SIZE;
@@ -248,21 +252,28 @@
                 fd.append('filename',    file.name);
                 fd.append('type',        type);
 
-                const res = await fetch('/api/upload-chunk', { method: 'POST', body: fd });
+                let res;
+                try {
+                    res = await fetch('/api/upload-chunk', { method: 'POST', body: fd });
+                } catch(e) {
+                    if (label) label.textContent = 'Network error: ' + e.message;
+                    return;
+                }
                 if (!res.ok) {
-                    if (label) label.textContent = 'Upload failed on chunk ' + (i+1) + '/' + totalChunks;
+                    if (label) label.textContent = 'Server error ' + res.status + ' on chunk ' + (i+1);
                     return;
                 }
                 const pct = Math.round(((i + 1) / totalChunks) * 100);
                 if (fill)  fill.style.width = pct + '%';
-                if (label) label.textContent = 'Uploading... ' + pct + '% (' + (i+1) + '/' + totalChunks + ' chunks)';
+                if (label) label.textContent = pct + '% — chunk ' + (i+1) + ' of ' + totalChunks;
 
                 if (i === totalChunks - 1) {
                     const data = await res.json();
                     if (label) label.textContent = data.status === 'ok'
-                        ? 'Done! ' + (data.records || 0).toLocaleString() + ' records loaded.'
-                        : 'Upload complete.';
-                    setTimeout(loadStatus, 1000);
+                        ? 'Done! ' + Number(data.records || 0).toLocaleString() + ' records loaded.'
+                        : 'Complete.';
+                    if (prog) setTimeout(() => { prog.style.display = 'none'; }, 3000);
+                    loadStatus();
                 }
             }
         }
@@ -270,10 +281,12 @@
         function setupZone(zoneId, inputId, type) {
             const zone  = document.getElementById(zoneId);
             const input = document.getElementById(inputId);
-            if (!input) return;
-            input.addEventListener('change', () => { if (input.files[0]) uploadFile(input.files[0], type); });
+            if (!input) { console.warn('No input found:', inputId); return; }
+            input.addEventListener('change', () => {
+                if (input.files && input.files[0]) uploadFile(input.files[0], type);
+            });
             if (zone) {
-                zone.addEventListener('click', () => input.click());
+                zone.addEventListener('click', (e) => { if (e.target === zone || zone.contains(e.target)) input.click(); });
                 zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('dragover'); });
                 zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
                 zone.addEventListener('drop', e => {
