@@ -214,33 +214,28 @@
 </div>
 
 <script>
-        // ── Status ──────────────────────────────────────────────────────────
         async function loadStatus() {
             try {
                 const r = await fetch('/api/data-status');
                 const d = await r.json();
-                const cb = document.getElementById('ccod-badge');
-                const ob = document.getElementById('ocod-badge');
-                const cs = document.getElementById('ccod-status');
-                const os = document.getElementById('ocod-status');
-                if (cb) { cb.className = 'status-badge ' + (d.ccod_loaded ? 'loaded' : 'missing'); cb.textContent = d.ccod_loaded ? 'Loaded' : 'Not loaded'; }
-                if (ob) { ob.className = 'status-badge ' + (d.ocod_loaded ? 'loaded' : 'missing'); ob.textContent = d.ocod_loaded ? 'Loaded' : 'Not loaded'; }
-                if (cs) cs.textContent = d.ccod_loaded ? d.ccod_records + ' records' : 'Upload file below';
-                if (os) os.textContent = d.ocod_loaded ? d.ocod_records + ' records' : 'Upload file below';
-            } catch(e) { console.error('Status load failed', e); }
+                const cb = document.getElementById('sCCOD');
+                const ob = document.getElementById('sOCOD');
+                if (cb) cb.textContent = d.ccod_loaded ? d.ccod_records + ' records loaded' : 'Not loaded';
+                if (ob) ob.textContent = d.ocod_loaded ? d.ocod_records + ' records loaded' : 'Not loaded';
+            } catch(e) {}
         }
 
-        // ── Chunked upload ───────────────────────────────────────────────────
         async function uploadFile(file, type) {
-            const CHUNK_SIZE = 10 * 1024 * 1024; // 10 MB
+            const CHUNK_SIZE = 10 * 1024 * 1024;
             const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
             const uploadId = Date.now().toString(36) + Math.random().toString(36).slice(2);
+            const prefix = type === 'ccod' ? 'ccod' : 'ocod';
+            const prog  = document.getElementById(prefix + 'Progress');
+            const fill  = document.getElementById(prefix + 'Fill');
+            const label = document.getElementById(prefix + 'Label');
 
-            const prog = document.getElementById(type + '-progress');
-            const fill = document.getElementById(type + '-fill');
-            const msg  = document.getElementById(type + '-msg');
-            if (prog) prog.classList.add('active');
-            if (msg)  msg.textContent = 'Starting upload...';
+            if (prog) prog.style.display = 'block';
+            if (label) label.textContent = 'Starting upload...';
 
             for (let i = 0; i < totalChunks; i++) {
                 const start = i * CHUNK_SIZE;
@@ -252,47 +247,46 @@
                 fd.append('totalChunks', totalChunks);
                 fd.append('filename',    file.name);
                 fd.append('type',        type);
+
                 const res = await fetch('/api/upload-chunk', { method: 'POST', body: fd });
                 if (!res.ok) {
-                    if (msg) msg.textContent = 'Upload failed on chunk ' + (i+1) + ' of ' + totalChunks;
+                    if (label) label.textContent = 'Upload failed on chunk ' + (i+1) + '/' + totalChunks;
                     return;
                 }
                 const pct = Math.round(((i + 1) / totalChunks) * 100);
-                if (fill) fill.style.width = pct + '%';
-                if (msg)  msg.textContent  = 'Uploading... ' + pct + '%  (' + (i+1) + '/' + totalChunks + ' chunks)';
-            }
+                if (fill)  fill.style.width = pct + '%';
+                if (label) label.textContent = 'Uploading... ' + pct + '% (' + (i+1) + '/' + totalChunks + ' chunks)';
 
-            if (msg) msg.textContent = 'Processing...';
-            setTimeout(() => {
-                if (prog) prog.classList.remove('active');
-                if (msg)  msg.textContent = '';
-                loadStatus();
-            }, 2000);
+                if (i === totalChunks - 1) {
+                    const data = await res.json();
+                    if (label) label.textContent = data.status === 'ok'
+                        ? 'Done! ' + (data.records || 0).toLocaleString() + ' records loaded.'
+                        : 'Upload complete.';
+                    setTimeout(loadStatus, 1000);
+                }
+            }
         }
 
-        // ── Wire up file inputs ──────────────────────────────────────────────
-        function setupUploadZone(zoneId, inputId, type) {
+        function setupZone(zoneId, inputId, type) {
             const zone  = document.getElementById(zoneId);
             const input = document.getElementById(inputId);
-            if (!zone || !input) return;
-            zone.addEventListener('click', () => input.click());
-            zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('dragover'); });
-            zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
-            zone.addEventListener('drop', e => {
-                e.preventDefault();
-                zone.classList.remove('dragover');
-                const f = e.dataTransfer.files[0];
-                if (f) uploadFile(f, type);
-            });
-            input.addEventListener('change', () => {
-                if (input.files[0]) uploadFile(input.files[0], type);
-            });
+            if (!input) return;
+            input.addEventListener('change', () => { if (input.files[0]) uploadFile(input.files[0], type); });
+            if (zone) {
+                zone.addEventListener('click', () => input.click());
+                zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('dragover'); });
+                zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+                zone.addEventListener('drop', e => {
+                    e.preventDefault(); zone.classList.remove('dragover');
+                    if (e.dataTransfer.files[0]) uploadFile(e.dataTransfer.files[0], type);
+                });
+            }
         }
 
         document.addEventListener('DOMContentLoaded', () => {
             loadStatus();
-            setupUploadZone('ccod-zone', 'ccodInput', 'ccod');
-            setupUploadZone('ocod-zone', 'ocodInput', 'ocod');
+            setupZone('ccodZone', 'ccodInput', 'ccod');
+            setupZone('ocodZone', 'ocodInput', 'ocod');
         });
     </script>
 
