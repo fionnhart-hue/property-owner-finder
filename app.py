@@ -3,10 +3,10 @@ Property Owner Finder - Backend API (v2)
 Helps Appear Here's landlord team identify commercial property owners in London.
 
 Data sources:
-1. Companies House API (free) — companies registered at address, officers & PSCs
-2. Land Registry CCOD/OCOD datasets (free) — all UK/overseas company-owned property
-3. Land Registry Business Gateway API (paid, £3/search) — definitive title register
-4. LinkedIn — Google search links to find individuals
+1. Companies House API (free) â companies registered at address, officers & PSCs
+2. Land Registry CCOD/OCOD datasets (free) â all UK/overseas company-owned property
+3. Land Registry Business Gateway API (paid, Â£3/search) â definitive title register
+4. LinkedIn â Google search links to find individuals
 """
 
 import os
@@ -26,16 +26,16 @@ app = Flask(__name__, static_folder="static")
 CORS(app)
 app.config['MAX_CONTENT_LENGTH'] = 2 * 1024 * 1024 * 1024  # 2GB max upload
 
-# ─── Configuration ───────────────────────────────────────────────────────────
+# âââ Configuration âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 
 COMPANIES_HOUSE_API_KEY = os.environ.get("COMPANIES_HOUSE_API_KEY", "")
 COMPANIES_HOUSE_BASE = "https://api.company-information.service.gov.uk"
 
-# Land Registry Business Gateway (optional — for automated title searches)
+# Land Registry Business Gateway (optional â for automated title searches)
 LR_BUSINESS_GATEWAY_USER = os.environ.get("LR_BUSINESS_GATEWAY_USER", "")
 LR_BUSINESS_GATEWAY_PASS = os.environ.get("LR_BUSINESS_GATEWAY_PASS", "")
 
-# Path to CCOD/OCOD CSV files (downloaded from Land Registry — free)
+# Path to CCOD/OCOD CSV files (downloaded from Land Registry â free)
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 
 # Rate limiting for Companies House API (600 requests per 5 minutes)
@@ -71,7 +71,7 @@ def ch_get(endpoint, params=None):
         return None, f"Connection error: {str(e)}"
 
 
-# ─── Address Helpers ─────────────────────────────────────────────────────────
+# âââ Address Helpers âââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 
 def extract_postcode(address):
     match = re.search(r"[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}", address.upper())
@@ -84,7 +84,7 @@ def extract_street_components(address):
 
 
 def normalise_for_matching(text):
-    """Lowercase, strip punctuation, collapse whitespace — for fuzzy address matching."""
+    """Lowercase, strip punctuation, collapse whitespace â for fuzzy address matching."""
     text = text.lower()
     text = re.sub(r"[^\w\s]", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
@@ -127,7 +127,7 @@ def address_match_score(query_address, candidate_address):
     return score
 
 
-# ─── CCOD / OCOD Dataset Search (FREE Land Registry data) ───────────────────
+# âââ CCOD / OCOD Dataset Search (FREE Land Registry data) âââââââââââââââââââ
 
 _ccod_data = None
 _ocod_data = None
@@ -270,13 +270,13 @@ def search_ccod_ocod(address):
     return results[:10]
 
 
-# ─── Land Registry Business Gateway API ─────────────────────────────────────
+# âââ Land Registry Business Gateway API âââââââââââââââââââââââââââââââââââââ
 
 def lr_business_gateway_search(address):
     """
     Search Land Registry Business Gateway for title information.
     Requires approved Business Gateway account.
-    Uses the Property Description enquiry (£3 per search).
+    Uses the Property Description enquiry (Â£3 per search).
     """
     if not LR_BUSINESS_GATEWAY_USER or not LR_BUSINESS_GATEWAY_PASS:
         return None, "not_configured"
@@ -329,7 +329,7 @@ def lr_business_gateway_search(address):
 
         if resp.status_code == 200:
             # Parse XML response to extract title numbers and proprietor names
-            # (Simplified — full XML parsing would use lxml in production)
+            # (Simplified â full XML parsing would use lxml in production)
             import xml.etree.ElementTree as ET
             root = ET.fromstring(resp.text)
 
@@ -349,7 +349,7 @@ def lr_business_gateway_search(address):
         return None, f"Business Gateway connection error: {str(e)}"
 
 
-# ─── Companies House Lookups ─────────────────────────────────────────────────
+# âââ Companies House Lookups âââââââââââââââââââââââââââââââââââââââââââââââââ
 
 def search_companies_by_address(address):
     results = []
@@ -478,7 +478,7 @@ def get_company_details(company_number):
     return data, None
 
 
-# ─── Cross-referencing logic ─────────────────────────────────────────────────
+# âââ Cross-referencing logic âââââââââââââââââââââââââââââââââââââââââââââââââ
 
 def cross_reference_results(ch_companies, lr_results):
     """
@@ -544,7 +544,7 @@ def cross_reference_results(ch_companies, lr_results):
     return insights
 
 
-# ─── Link Generators ─────────────────────────────────────────────────────────
+# âââ Link Generators âââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 
 def generate_land_registry_links(address):
     encoded = urllib.parse.quote(address)
@@ -568,7 +568,7 @@ def generate_linkedin_search(person_name, company_name=None, location="London"):
     return f"https://www.google.com/search?q={urllib.parse.quote(query)}"
 
 
-# ─── API Routes ──────────────────────────────────────────────────────────────
+# âââ API Routes ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 
 @app.route("/")
 def index():
@@ -607,7 +607,7 @@ def lookup_property():
         "warnings": [],
     }
 
-    # ── Source 1: CCOD/OCOD free datasets ──
+    # ââ Source 1: CCOD/OCOD free datasets ââ
     lr_results = search_ccod_ocod(address)
     result["land_registry_data"] = lr_results
 
@@ -619,7 +619,7 @@ def lookup_property():
             if reg_no:
                 lr_company_numbers.add(reg_no)
 
-    # ── Source 2: Land Registry Business Gateway (if configured) ──
+    # ââ Source 2: Land Registry Business Gateway (if configured) ââ
     if LR_BUSINESS_GATEWAY_USER:
         gateway_results, gateway_err = lr_business_gateway_search(address)
         if gateway_err and gateway_err != "not_configured":
@@ -627,7 +627,7 @@ def lookup_property():
         elif gateway_results:
             result["land_registry_gateway"] = gateway_results
 
-    # ── Source 3: Companies House ──
+    # ââ Source 3: Companies House ââ
     ch_companies = []
     if COMPANIES_HOUSE_API_KEY:
         # Search for companies registered at the address
@@ -691,13 +691,13 @@ def lookup_property():
     else:
         result["warnings"].append("Companies House API key not set. Set COMPANIES_HOUSE_API_KEY for company lookups.")
 
-    # ── Cross-reference ──
+    # ââ Cross-reference ââ
     result["insights"] = cross_reference_results(ch_companies, lr_results)
 
     if not ch_companies and not lr_results:
         result["warnings"].append(
             "No ownership data found from any source. Use the Land Registry title search link "
-            "(£3) for definitive ownership — it covers all properties including individually owned ones."
+            "(Â£3) for definitive ownership â it covers all properties including individually owned ones."
         )
 
     return jsonify(result)
@@ -808,92 +808,71 @@ def upload_chunk():
 
 @app.route("/api/load-from-url", methods=["POST"])
 def load_from_url():
-    """Download a CSV from a Google Drive share link and load as CCOD or OCOD."""
     global _ccod_data, _ocod_data
     body  = request.get_json(force=True, silent=True) or {}
     url   = body.get("url", "").strip()
     ftype = body.get("type", "").lower()
-
     if not url:
         return jsonify({"error": "No URL provided"}), 400
-
-    # Extract Google Drive file ID
+    # Extract Google Drive file ID from share URL
     import re as _re
-    gd = _re.search(r'/(?:file/d|open?id=)([a-zA-Z0-9_-]{20,})', url)
+    gd = _re.search(r"/(?:file/d|open[?]id=)([a-zA-Z0-9_-]{20,})", url)
     if not gd:
-        return jsonify({"error": "Could not find a Google Drive file ID in that URL. Make sure you copied the share link correctly."}), 400
-
+        return jsonify({"error": "Could not find a Google Drive file ID in that URL"}), 400
     file_id = gd.group(1)
-
-    # Step 1: hit the standard download URL — Google sets a download_warning cookie for large files
+    # Use requests.Session so cookies persist across redirects
     session = requests.Session()
-    session.headers.update({"User-Agent": "Mozilla/5.0 (compatible)"})
-    dl_url = f"https://drive.google.com/uc?export=download&id={file_id}"
-
+    session.headers["User-Agent"] = "Mozilla/5.0"
+    base = "https://drive.google.com/uc"
+    params = {"export": "download", "id": file_id}
+    # First request — Google may set a download_warning cookie for large files
     try:
-        r1 = session.get(dl_url, timeout=60, allow_redirects=True)
+        r1 = session.get(base, params=params, timeout=60)
         r1.raise_for_status()
-    except Exception as e:
-        return jsonify({"error": f"Failed to reach Google Drive: {e}"}), 502
-
-    # Step 2: check for confirmation cookie (large-file virus warning)
-    confirm_token = None
+    except Exception as exc:
+        return jsonify({"error": "Could not reach Google Drive: " + str(exc)}), 502
+    # Check for confirmation cookie (large file virus scan warning)
+    confirm = None
     for k, v in session.cookies.items():
-        if k.startswith("download_warning"):
-            confirm_token = v
+        if "download_warning" in k:
+            confirm = v
             break
-
-    if confirm_token:
-        dl_url = f"https://drive.google.com/uc?export=download&id={file_id}&confirm={confirm_token}"
+    if confirm:
+        params["confirm"] = confirm
     elif "text/html" in r1.headers.get("Content-Type", ""):
-        # Newer Google Drive — try usercontent domain
-        dl_url = f"https://drive.usercontent.google.com/download?id={file_id}&export=download&authuser=0&confirm=t"
-
-    # Step 3: stream the actual file
+        # Fallback: usercontent domain
+        base = "https://drive.usercontent.google.com/download"
+        params["confirm"] = "t"
+        params["authuser"] = "0"
+    # Stream the actual CSV
     try:
-        resp = session.get(dl_url, stream=True, timeout=600)
+        resp = session.get(base, params=params, stream=True, timeout=600)
         resp.raise_for_status()
-    except Exception as e:
-        return jsonify({"error": f"Download failed: {e}"}), 502
-
-    # Derive a safe filename
-    cd = resp.headers.get("Content-Disposition", "")
-    fn_m = _re.search(r'filename[^;=\n]*=(['"]?)([^'"\n;]+)\1', cd)
-    filename = fn_m.group(2).strip() if fn_m else (ftype.upper() + "_data.csv")
-    filename = secure_filename(filename)
-    if not filename.lower().endswith(".csv"):
-        filename += ".csv"
-    if ftype == "ccod" and "CCOD" not in filename.upper():
-        filename = "CCOD_" + filename
-    elif ftype == "ocod" and "OCOD" not in filename.upper():
-        filename = "OCOD_" + filename
-
-    # Save to disk
+    except Exception as exc:
+        return jsonify({"error": "Download failed: " + str(exc)}), 502
+    # Determine filename
+    if ftype == "ccod":
+        filename = "CCOD_data.csv"
+    else:
+        filename = "OCOD_data.csv"
     data_dir = Path(DATA_DIR)
     data_dir.mkdir(parents=True, exist_ok=True)
     dest = data_dir / filename
-    bytes_written = 0
+    written = 0
     with open(str(dest), "wb") as f:
         for chunk in resp.iter_content(chunk_size=8 * 1024 * 1024):
             if chunk:
                 f.write(chunk)
-                bytes_written += len(chunk)
-
-    if bytes_written < 1000:
-        return jsonify({"error": f"Downloaded file is too small ({bytes_written} bytes) — Google Drive may require sign-in. Check the file sharing is set to Anyone with the link."}), 502
-
-    # Reload data cache
-    fn_upper = filename.upper()
-    if "CCOD" in fn_upper:
+                written += len(chunk)
+    if written < 1000:
+        return jsonify({"error": "Downloaded file too small (" + str(written) + " bytes). Check sharing is set to Anyone with the link."}), 502
+    if ftype == "ccod":
         _ccod_data = None
         records = _load_ccod()
         return jsonify({"status": "ok", "type": "CCOD", "records": len(records), "filename": filename})
-    elif "OCOD" in fn_upper:
-        _ocod_data = None
-        records = _load_ocod()
-        return jsonify({"status": "ok", "type": "OCOD", "records": len(records), "filename": filename})
-    return jsonify({"status": "ok", "type": "unknown", "filename": filename, "bytes": bytes_written})
-
+    _ocod_data = None
+    records = _load_ocod()
+    return jsonify({"status": "ok", "type": "OCOD", "records": len(records), "filename": filename})
 
 
 @app.route("/settings")
@@ -914,7 +893,7 @@ def company_detail(company_number):
     return jsonify({"details": details, "officers": officers, "pscs": pscs})
 
 
-# ─── Main ────────────────────────────────────────────────────────────────────
+# âââ Main ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
