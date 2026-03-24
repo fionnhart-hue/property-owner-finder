@@ -808,71 +808,81 @@ def upload_chunk():
 
 @app.route("/api/load-from-url", methods=["POST"])
 def load_from_url():
-    """Download a CSV from a URL (e.g. Google Drive) and load it as CCOD or OCOD."""
+    """Download a CSV from a Google Drive share link and load as CCOD or OCOD."""
     global _ccod_data, _ocod_data
-    body = request.get_json(force=True, silent=True) or {}
-    url  = body.get("url", "").strip()
-    ftype = body.get("type", "").lower()  # "ccod" or "ocod"
+    body  = request.get_json(force=True, silent=True) or {}
+    url   = body.get("url", "").strip()
+    ftype = body.get("type", "").lower()
 
     if not url:
         return jsonify({"error": "No URL provided"}), 400
 
-    # Convert Google Drive share link to direct download
+    # Extract Google Drive file ID
     import re as _re
-    gd = _re.search(r'/file/d/([^/]+)', url)
-    if gd:
-        file_id = gd.group(1)
-        url = f"https://drive.google.com/uc?export=download&id={file_id}&confirm=t"
+    gd = _re.search(r'/(?:file/d|open?id=)([a-zA-Z0-9_-]{20,})', url)
+    if not gd:
+        return jsonify({"error": "Could not find a Google Drive file ID in that URL. Make sure you copied the share link correctly."}), 400
+
+    file_id = gd.group(1)
+
+    # Step 1: hit the standard download URL — Google sets a download_warning cookie for large files
+    session = requests.Session()
+    session.headers.update({"User-Agent": "Mozilla/5.0 (compatible)"})
+    dl_url = f"https://drive.google.com/uc?export=download&id={file_id}"
 
     try:
-        session = requests.Session()
-        session.headers.update({"User-Agent": "Mozilla/5.0"})
-        # First request — may return HTML warning page for large GDrive files
-        r1 = session.get(url, stream=False, timeout=60)
+        r1 = session.get(dl_url, timeout=60, allow_redirects=True)
         r1.raise_for_status()
-        ct = r1.headers.get("Content-Type", "")
-        if "text/html" in ct:
-            # Extract confirmation token from Google Drive warning page
-            tok = None
-            m = _re.search(r'confirm=([0-9A-Za-z_]+)', r1.text)
-            if m:
-                tok = m.group(1)
-            # Try usercontent.google.com direct download
-            if gd:
-                dl_url = f"https://drive.usercontent.google.com/download?id={gd.group(1)}&export=download&confirm=t"
-                if tok:
-                    dl_url += f"&uuid={tok}"
-            else:
-                dl_url = url + ("&confirm=t" if "?" in url else "?confirm=t")
-            resp = session.get(dl_url, stream=True, timeout=600)
-            resp.raise_for_status()
-        else:
-            resp = r1
-            resp.raw.decode_content = True
+    except Exception as e:
+        return jsonify({"error": f"Failed to reach Google Drive: {e}"}), 502
+
+    # Step 2: check for confirmation cookie (large-file virus warning)
+    confirm_token = None
+    for k, v in session.cookies.items():
+        if k.startswith("download_warning"):
+            confirm_token = v
+            break
+
+    if confirm_token:
+        dl_url = f"https://drive.google.com/uc?export=download&id={file_id}&confirm={confirm_token}"
+    elif "text/html" in r1.headers.get("Content-Type", ""):
+        # Newer Google Drive — try usercontent domain
+        dl_url = f"https://drive.usercontent.google.com/download?id={file_id}&export=download&authuser=0&confirm=t"
+
+    # Step 3: stream the actual file
+    try:
+        resp = session.get(dl_url, stream=True, timeout=600)
+        resp.raise_for_status()
     except Exception as e:
         return jsonify({"error": f"Download failed: {e}"}), 502
 
-    # Determine filename
+    # Derive a safe filename
     cd = resp.headers.get("Content-Disposition", "")
-    fn_match = _re.search(r'filename="?([^";]+)"?', cd)
-    filename = fn_match.group(1) if fn_match else (ftype.upper() + "_download.csv")
+    fn_m = _re.search(r'filename[^;=\n]*=(['"]?)([^'"\n;]+)\1', cd)
+    filename = fn_m.group(2).strip() if fn_m else (ftype.upper() + "_data.csv")
     filename = secure_filename(filename)
     if not filename.lower().endswith(".csv"):
         filename += ".csv"
     if ftype == "ccod" and "CCOD" not in filename.upper():
         filename = "CCOD_" + filename
-    if ftype == "ocod" and "OCOD" not in filename.upper():
+    elif ftype == "ocod" and "OCOD" not in filename.upper():
         filename = "OCOD_" + filename
 
+    # Save to disk
     data_dir = Path(DATA_DIR)
     data_dir.mkdir(parents=True, exist_ok=True)
     dest = data_dir / filename
-
+    bytes_written = 0
     with open(str(dest), "wb") as f:
         for chunk in resp.iter_content(chunk_size=8 * 1024 * 1024):
             if chunk:
                 f.write(chunk)
+                bytes_written += len(chunk)
 
+    if bytes_written < 1000:
+        return jsonify({"error": f"Downloaded file is too small ({bytes_written} bytes) — Google Drive may require sign-in. Check the file sharing is set to Anyone with the link."}), 502
+
+    # Reload data cache
     fn_upper = filename.upper()
     if "CCOD" in fn_upper:
         _ccod_data = None
@@ -882,7 +892,8 @@ def load_from_url():
         _ocod_data = None
         records = _load_ocod()
         return jsonify({"status": "ok", "type": "OCOD", "records": len(records), "filename": filename})
-    return jsonify({"status": "ok", "type": "unknown", "filename": filename})
+    return jsonify({"status": "ok", "type": "unknown", "filename": filename, "bytes": bytes_written})
+
 
 
 @app.route("/settings")
