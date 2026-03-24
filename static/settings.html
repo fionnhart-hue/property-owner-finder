@@ -248,31 +248,42 @@ function setBadge(id, cls, text) {
 
 // File upload
 async function uploadFile(file, type) {
-    if (!file) return;
+            const CHUNK = 10 * 1024 * 1024; // 10 MB per chunk
+            const total = Math.ceil(file.size / CHUNK);
+            const uid   = Date.now().toString(36) + Math.random().toString(36).slice(2);
+            const prog  = document.getElementById(type + '-progress');
+            const fill  = document.getElementById(type + '-fill');
+            const msg   = document.getElementById(type + '-msg');
+            if (prog) prog.classList.add('active');
 
-    const progress = document.getElementById(`${type}Progress`);
-    const fill = document.getElementById(`${type}Fill`);
-    const label = document.getElementById(`${type}Label`);
-    const result = document.getElementById(`${type}Result`);
-
-    progress.classList.add('active');
-    result.className = 'upload-result';
-    fill.style.width = '0%';
-    label.textContent = `Uploading ${file.name} (${(file.size / 1024 / 1024).toFixed(0)} MB)…`;
-
-    const formData = new FormData();
-    formData.append('file', file);
-
-    try {
-        const xhr = new XMLHttpRequest();
-        xhr.open('POST', `${API_BASE}/api/upload-data`);
-
-        xhr.upload.onprogress = (e) => {
-            if (e.lengthComputable) {
-                const pct = (e.loaded / e.total * 100).toFixed(0);
-                fill.style.width = pct + '%';
-                label.textContent = `Uploading… ${pct}%`;
+            for (let i = 0; i < total; i++) {
+                const start = i * CHUNK;
+                const blob  = file.slice(start, start + CHUNK);
+                const fd    = new FormData();
+                fd.append('chunk',       blob);
+                fd.append('uploadId',    uid);
+                fd.append('chunkIndex',  i);
+                fd.append('totalChunks', total);
+                fd.append('filename',    file.name);
+                fd.append('type',        type);
+                const res = await fetch('/api/upload-chunk', {method: 'POST', body: fd});
+                if (!res.ok) { if (msg) msg.textContent = 'Upload failed on chunk ' + i; return; }
+                const pct = Math.round(((i + 1) / total) * 100);
+                if (fill) fill.style.width = pct + '%';
+                if (msg)  msg.textContent  = 'Uploading... ' + pct + '%';
             }
+
+            if (msg) msg.textContent = 'Processing file...';
+            // Final response already returned by last chunk
+            const resp = await fetch('/api/upload-chunk', {method: 'POST', body: (() => {
+                const fd = new FormData();
+                fd.append('chunk', new Blob([]));
+                fd.append('uploadId', uid + '_done'); // won't match — we already got result
+                return fd;
+            })()}).catch(() => null);
+
+            if (msg) msg.textContent = 'Upload complete!';
+            setTimeout(() => { if (prog) prog.classList.remove('active'); loadStatus(); }, 1500);
         };
 
         xhr.onload = () => {
