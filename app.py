@@ -10,6 +10,7 @@ Data sources:
 """
 
 import os
+import shutil
 import re
 import csv
 import json
@@ -766,6 +767,43 @@ def upload_data():
             "filename": filename,
         })
 
+
+
+@app.route("/api/upload-chunk", methods=["POST"])
+def upload_chunk():
+    """Accept one chunk of a chunked CSV upload; assemble when all chunks received."""
+    global _ccod_data, _ocod_data
+    chunk_file = request.files.get("chunk")
+    upload_id  = request.form.get("uploadId", "")
+    chunk_idx  = int(request.form.get("chunkIndex", 0))
+    total      = int(request.form.get("totalChunks", 1))
+    filename   = secure_filename(request.form.get("filename", "upload.csv"))
+    if not chunk_file or not upload_id:
+        return jsonify({"error": "Missing chunk or uploadId"}), 400
+    tmp_dir = Path("/tmp") / upload_id
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    chunk_file.save(str(tmp_dir / "chunk_{:06d}".format(chunk_idx)))
+    received = len(list(tmp_dir.glob("chunk_*")))
+    if received < total:
+        return jsonify({"status": "chunk_ok", "received": received, "total": total})
+    data_dir = Path(DATA_DIR)
+    data_dir.mkdir(parents=True, exist_ok=True)
+    dest = data_dir / filename
+    with open(str(dest), "wb") as out:
+        for i in range(total):
+            with open(str(tmp_dir / "chunk_{:06d}".format(i)), "rb") as cf:
+                out.write(cf.read())
+    shutil.rmtree(str(tmp_dir), ignore_errors=True)
+    fn_upper = filename.upper()
+    if "CCOD" in fn_upper:
+        _ccod_data = None
+        records = _load_ccod()
+        return jsonify({"status": "ok", "type": "CCOD", "records": len(records), "filename": filename})
+    elif "OCOD" in fn_upper:
+        _ocod_data = None
+        records = _load_ocod()
+        return jsonify({"status": "ok", "type": "OCOD", "records": len(records), "filename": filename})
+    return jsonify({"status": "ok", "type": "unknown", "filename": filename})
 
 @app.route("/settings")
 def settings_page():
