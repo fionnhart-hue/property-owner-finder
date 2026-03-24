@@ -166,13 +166,14 @@
         <!-- CCOD Upload -->
         <div style="margin-top:16px;">
             <strong style="font-size:14px;">Upload CCOD file (UK companies)</strong>
-            <div class="upload-zone" id="ccodZone" onclick="document.getElementById('ccodInput').click()">
-                <input type="file" id="ccodInput" accept=".csv" onchange="uploadFile(this.files[0], 'ccod')">
-                <h3>Drop CCOD CSV here or click to browse</h3>
-                <p>File will be named something like CCOD_FULL_2026_03.csv</p>
-            </div>
-            <div class="upload-progress" id="ccodProgress">
-                <div class="bar"><div class="fill" id="ccodFill"></div></div>
+            <div class="upload-zone" id="ccodZone"><div style="margin-top:12px">
+                <p style="font-size:13px;color:#666;margin-bottom:8px">Upload the CSV to <strong>Google Drive</strong>, set sharing to "Anyone with the link", then paste the link below:</p>
+                <div style="display:flex;gap:8px;align-items:center">
+                    <input id="ccodUrl" type="text" placeholder="https://drive.google.com/file/d/..." style="flex:1;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:13px">
+                    <button id="ccodBtn" onclick="loadFromUrl('ccod')" style="padding:8px 16px;background:#e91e8c;color:white;border:none;border-radius:6px;cursor:pointer;font-size:13px;white-space:nowrap">Load</button>
+                </div>
+                <p id="ccodMsg" style="font-size:12px;color:#666;margin-top:6px"></p>
+            </div></div>
                 <div class="label" id="ccodLabel">Uploading…</div>
             </div>
             <div class="upload-result" id="ccodResult"></div>
@@ -181,13 +182,14 @@
         <!-- OCOD Upload -->
         <div style="margin-top:24px;">
             <strong style="font-size:14px;">Upload OCOD file (Overseas companies)</strong>
-            <div class="upload-zone" id="ocodZone" onclick="document.getElementById('ocodInput').click()">
-                <input type="file" id="ocodInput" accept=".csv" onchange="uploadFile(this.files[0], 'ocod')">
-                <h3>Drop OCOD CSV here or click to browse</h3>
-                <p>File will be named something like OCOD_FULL_2026_03.csv</p>
-            </div>
-            <div class="upload-progress" id="ocodProgress">
-                <div class="bar"><div class="fill" id="ocodFill"></div></div>
+            <div class="upload-zone" id="ocodZone"><div style="margin-top:12px">
+                <p style="font-size:13px;color:#666;margin-bottom:8px">Upload the CSV to <strong>Google Drive</strong>, set sharing to "Anyone with the link", then paste the link below:</p>
+                <div style="display:flex;gap:8px;align-items:center">
+                    <input id="ocodUrl" type="text" placeholder="https://drive.google.com/file/d/..." style="flex:1;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:13px">
+                    <button id="ocodBtn" onclick="loadFromUrl('ocod')" style="padding:8px 16px;background:#e91e8c;color:white;border:none;border-radius:6px;cursor:pointer;font-size:13px;white-space:nowrap">Load</button>
+                </div>
+                <p id="ocodMsg" style="font-size:12px;color:#666;margin-top:6px"></p>
+            </div></div>
                 <div class="label" id="ocodLabel">Uploading…</div>
             </div>
             <div class="upload-result" id="ocodResult"></div>
@@ -221,86 +223,45 @@
                 const cEl = document.getElementById('sCCOD');
                 const oEl = document.getElementById('sOCOD');
                 const chEl = document.getElementById('sCH');
-                if (cEl) cEl.textContent = d.ccod_loaded ? d.ccod_loaded.toLocaleString() + ' records loaded' : 'Not loaded — upload below';
-                if (oEl) oEl.textContent = d.ocod_loaded ? d.ocod_loaded.toLocaleString() + ' records loaded' : 'Not loaded — upload below';
+                if (cEl) cEl.textContent = d.ccod_loaded ? Number(d.ccod_loaded).toLocaleString() + ' records loaded' : 'Not loaded';
+                if (oEl) oEl.textContent = d.ocod_loaded ? Number(d.ocod_loaded).toLocaleString() + ' records loaded' : 'Not loaded';
                 if (chEl) chEl.textContent = d.companies_house_configured ? 'Configured' : 'Not configured';
-            } catch(e) {
-                console.error('Status error:', e);
-            }
+            } catch(e) { console.error('Status error:', e); }
         }
 
-        async function uploadFile(file, type) {
-            const CHUNK_SIZE = 10 * 1024 * 1024;
-            const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
-            const uploadId = Date.now().toString(36) + Math.random().toString(36).slice(2);
-            const prefix = type === 'ccod' ? 'ccod' : 'ocod';
-            const prog  = document.getElementById(prefix + 'Progress');
-            const fill  = document.getElementById(prefix + 'Fill');
-            const label = document.getElementById(prefix + 'Label');
+        async function loadFromUrl(type) {
+            const inputId = type === 'ccod' ? 'ccodUrl' : 'ocodUrl';
+            const btnId   = type === 'ccod' ? 'ccodBtn' : 'ocodBtn';
+            const msgId   = type === 'ccod' ? 'ccodMsg' : 'ocodMsg';
+            const url   = (document.getElementById(inputId) || {}).value || '';
+            const btn   = document.getElementById(btnId);
+            const msg   = document.getElementById(msgId);
 
-            if (prog)  prog.style.display = 'block';
-            if (label) label.textContent = 'Starting...';
+            if (!url) { if (msg) msg.textContent = 'Please paste a Google Drive link first.'; return; }
+            if (btn) { btn.disabled = true; btn.textContent = 'Downloading...'; }
+            if (msg) msg.textContent = 'Server is downloading the file — this takes 1-2 minutes for large files, please wait...';
 
-            for (let i = 0; i < totalChunks; i++) {
-                const start = i * CHUNK_SIZE;
-                const chunk = file.slice(start, start + CHUNK_SIZE);
-                const fd = new FormData();
-                fd.append('chunk',       chunk);
-                fd.append('uploadId',    uploadId);
-                fd.append('chunkIndex',  i);
-                fd.append('totalChunks', totalChunks);
-                fd.append('filename',    file.name);
-                fd.append('type',        type);
-
-                let res;
-                try {
-                    res = await fetch('/api/upload-chunk', { method: 'POST', body: fd });
-                } catch(e) {
-                    if (label) label.textContent = 'Network error: ' + e.message;
-                    return;
-                }
-                if (!res.ok) {
-                    if (label) label.textContent = 'Server error ' + res.status + ' on chunk ' + (i+1);
-                    return;
-                }
-                const pct = Math.round(((i + 1) / totalChunks) * 100);
-                if (fill)  fill.style.width = pct + '%';
-                if (label) label.textContent = pct + '% — chunk ' + (i+1) + ' of ' + totalChunks;
-
-                if (i === totalChunks - 1) {
-                    const data = await res.json();
-                    if (label) label.textContent = data.status === 'ok'
-                        ? 'Done! ' + Number(data.records || 0).toLocaleString() + ' records loaded.'
-                        : 'Complete.';
-                    if (prog) setTimeout(() => { prog.style.display = 'none'; }, 3000);
-                    loadStatus();
-                }
-            }
-        }
-
-        function setupZone(zoneId, inputId, type) {
-            const zone  = document.getElementById(zoneId);
-            const input = document.getElementById(inputId);
-            if (!input) { console.warn('No input found:', inputId); return; }
-            input.addEventListener('change', () => {
-                if (input.files && input.files[0]) uploadFile(input.files[0], type);
-            });
-            if (zone) {
-                zone.addEventListener('click', (e) => { if (e.target === zone || zone.contains(e.target)) input.click(); });
-                zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('dragover'); });
-                zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
-                zone.addEventListener('drop', e => {
-                    e.preventDefault(); zone.classList.remove('dragover');
-                    if (e.dataTransfer.files[0]) uploadFile(e.dataTransfer.files[0], type);
+            try {
+                const res = await fetch('/api/load-from-url', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({url: url, type: type})
                 });
+                const data = await res.json();
+                if (data.status === 'ok') {
+                    if (msg) msg.textContent = 'Done! ' + Number(data.records || 0).toLocaleString() + ' records loaded.';
+                    loadStatus();
+                } else {
+                    if (msg) msg.textContent = 'Error: ' + (data.error || 'Unknown error');
+                }
+            } catch(e) {
+                if (msg) msg.textContent = 'Error: ' + e.message;
+            } finally {
+                if (btn) { btn.disabled = false; btn.textContent = 'Load'; }
             }
         }
 
-        document.addEventListener('DOMContentLoaded', () => {
-            loadStatus();
-            setupZone('ccodZone', 'ccodInput', 'ccod');
-            setupZone('ocodZone', 'ocodInput', 'ocod');
-        });
+        document.addEventListener('DOMContentLoaded', loadStatus);
     </script>
 
 </body>
