@@ -214,131 +214,87 @@
 </div>
 
 <script>
-const API_BASE = window.location.origin;
-
-// Status check
-async function checkStatus() {
-    try {
-        const resp = await fetch(`${API_BASE}/api/status`);
-        const data = await resp.json();
-        setStatusBadge('sCH', data.companies_house_configured, 'Connected', 'Not set');
-        setStatusBadge('sLR', data.land_registry_gateway_configured, 'Connected', 'Not set (optional)');
-        if (data.ccod_loaded > 0) {
-            setBadge('sCCOD', 'ok', `${data.ccod_loaded.toLocaleString()} records`);
-        } else {
-            setBadge('sCCOD', 'missing', 'Not uploaded');
+        // ── Status ──────────────────────────────────────────────────────────
+        async function loadStatus() {
+            try {
+                const r = await fetch('/api/data-status');
+                const d = await r.json();
+                const cb = document.getElementById('ccod-badge');
+                const ob = document.getElementById('ocod-badge');
+                const cs = document.getElementById('ccod-status');
+                const os = document.getElementById('ocod-status');
+                if (cb) { cb.className = 'status-badge ' + (d.ccod_loaded ? 'loaded' : 'missing'); cb.textContent = d.ccod_loaded ? 'Loaded' : 'Not loaded'; }
+                if (ob) { ob.className = 'status-badge ' + (d.ocod_loaded ? 'loaded' : 'missing'); ob.textContent = d.ocod_loaded ? 'Loaded' : 'Not loaded'; }
+                if (cs) cs.textContent = d.ccod_loaded ? d.ccod_records + ' records' : 'Upload file below';
+                if (os) os.textContent = d.ocod_loaded ? d.ocod_records + ' records' : 'Upload file below';
+            } catch(e) { console.error('Status load failed', e); }
         }
-        if (data.ocod_loaded > 0) {
-            setBadge('sOCOD', 'ok', `${data.ocod_loaded.toLocaleString()} records`);
-        } else {
-            setBadge('sOCOD', 'missing', 'Not uploaded');
-        }
-    } catch { /* ignore */ }
-}
 
-function setStatusBadge(id, ok, yesText, noText) {
-    setBadge(id, ok ? 'ok' : 'missing', ok ? yesText : noText);
-}
+        // ── Chunked upload ───────────────────────────────────────────────────
+        async function uploadFile(file, type) {
+            const CHUNK_SIZE = 10 * 1024 * 1024; // 10 MB
+            const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+            const uploadId = Date.now().toString(36) + Math.random().toString(36).slice(2);
 
-function setBadge(id, cls, text) {
-    const el = document.getElementById(id);
-    el.className = `status-badge ${cls}`;
-    el.textContent = text;
-}
-
-// File upload
-async function uploadFile(file, type) {
-            const CHUNK = 10 * 1024 * 1024; // 10 MB per chunk
-            const total = Math.ceil(file.size / CHUNK);
-            const uid   = Date.now().toString(36) + Math.random().toString(36).slice(2);
-            const prog  = document.getElementById(type + '-progress');
-            const fill  = document.getElementById(type + '-fill');
-            const msg   = document.getElementById(type + '-msg');
+            const prog = document.getElementById(type + '-progress');
+            const fill = document.getElementById(type + '-fill');
+            const msg  = document.getElementById(type + '-msg');
             if (prog) prog.classList.add('active');
+            if (msg)  msg.textContent = 'Starting upload...';
 
-            for (let i = 0; i < total; i++) {
-                const start = i * CHUNK;
-                const blob  = file.slice(start, start + CHUNK);
-                const fd    = new FormData();
-                fd.append('chunk',       blob);
-                fd.append('uploadId',    uid);
+            for (let i = 0; i < totalChunks; i++) {
+                const start = i * CHUNK_SIZE;
+                const chunk = file.slice(start, start + CHUNK_SIZE);
+                const fd = new FormData();
+                fd.append('chunk',       chunk);
+                fd.append('uploadId',    uploadId);
                 fd.append('chunkIndex',  i);
-                fd.append('totalChunks', total);
+                fd.append('totalChunks', totalChunks);
                 fd.append('filename',    file.name);
                 fd.append('type',        type);
-                const res = await fetch('/api/upload-chunk', {method: 'POST', body: fd});
-                if (!res.ok) { if (msg) msg.textContent = 'Upload failed on chunk ' + i; return; }
-                const pct = Math.round(((i + 1) / total) * 100);
+                const res = await fetch('/api/upload-chunk', { method: 'POST', body: fd });
+                if (!res.ok) {
+                    if (msg) msg.textContent = 'Upload failed on chunk ' + (i+1) + ' of ' + totalChunks;
+                    return;
+                }
+                const pct = Math.round(((i + 1) / totalChunks) * 100);
                 if (fill) fill.style.width = pct + '%';
-                if (msg)  msg.textContent  = 'Uploading... ' + pct + '%';
+                if (msg)  msg.textContent  = 'Uploading... ' + pct + '%  (' + (i+1) + '/' + totalChunks + ' chunks)';
             }
 
-            if (msg) msg.textContent = 'Processing file...';
-            // Final response already returned by last chunk
-            const resp = await fetch('/api/upload-chunk', {method: 'POST', body: (() => {
-                const fd = new FormData();
-                fd.append('chunk', new Blob([]));
-                fd.append('uploadId', uid + '_done'); // won't match — we already got result
-                return fd;
-            })()}).catch(() => null);
+            if (msg) msg.textContent = 'Processing...';
+            setTimeout(() => {
+                if (prog) prog.classList.remove('active');
+                if (msg)  msg.textContent = '';
+                loadStatus();
+            }, 2000);
+        }
 
-            if (msg) msg.textContent = 'Upload complete!';
-            setTimeout(() => { if (prog) prog.classList.remove('active'); loadStatus(); }, 1500);
-        };
+        // ── Wire up file inputs ──────────────────────────────────────────────
+        function setupUploadZone(zoneId, inputId, type) {
+            const zone  = document.getElementById(zoneId);
+            const input = document.getElementById(inputId);
+            if (!zone || !input) return;
+            zone.addEventListener('click', () => input.click());
+            zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('dragover'); });
+            zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+            zone.addEventListener('drop', e => {
+                e.preventDefault();
+                zone.classList.remove('dragover');
+                const f = e.dataTransfer.files[0];
+                if (f) uploadFile(f, type);
+            });
+            input.addEventListener('change', () => {
+                if (input.files[0]) uploadFile(input.files[0], type);
+            });
+        }
 
-        xhr.onload = () => {
-            progress.classList.remove('active');
-            if (xhr.status === 200) {
-                const data = JSON.parse(xhr.responseText);
-                result.className = 'upload-result success';
-                result.textContent = `Done! Loaded ${data.records?.toLocaleString() || 0} ${data.type} records from ${data.filename}.`;
-                checkStatus();
-            } else {
-                const data = JSON.parse(xhr.responseText);
-                result.className = 'upload-result error';
-                result.textContent = `Error: ${data.error || 'Upload failed'}`;
-            }
-        };
-
-        xhr.onerror = () => {
-            progress.classList.remove('active');
-            result.className = 'upload-result error';
-            result.textContent = 'Upload failed — check your connection and try again.';
-        };
-
-        // Timeout: 10 minutes for large files
-        xhr.timeout = 600000;
-        xhr.ontimeout = () => {
-            progress.classList.remove('active');
-            result.className = 'upload-result error';
-            result.textContent = 'Upload timed out. The file may be too large for your connection speed.';
-        };
-
-        label.textContent = `Uploading ${file.name}…`;
-        fill.style.width = '10%';
-        xhr.send(formData);
-
-    } catch (err) {
-        progress.classList.remove('active');
-        result.className = 'upload-result error';
-        result.textContent = `Error: ${err.message}`;
-    }
-}
-
-// Drag and drop
-for (const type of ['ccod', 'ocod']) {
-    const zone = document.getElementById(`${type}Zone`);
-    zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('dragover'); });
-    zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
-    zone.addEventListener('drop', (e) => {
-        e.preventDefault();
-        zone.classList.remove('dragover');
-        if (e.dataTransfer.files.length) uploadFile(e.dataTransfer.files[0], type);
-    });
-}
-
-checkStatus();
-</script>
+        document.addEventListener('DOMContentLoaded', () => {
+            loadStatus();
+            setupUploadZone('ccod-zone', 'ccodInput', 'ccod');
+            setupUploadZone('ocod-zone', 'ocodInput', 'ocod');
+        });
+    </script>
 
 </body>
 </html>
