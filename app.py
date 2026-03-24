@@ -805,6 +805,65 @@ def upload_chunk():
         return jsonify({"status": "ok", "type": "OCOD", "records": len(records), "filename": filename})
     return jsonify({"status": "ok", "type": "unknown", "filename": filename})
 
+
+@app.route("/api/load-from-url", methods=["POST"])
+def load_from_url():
+    """Download a CSV from a URL (e.g. Google Drive) and load it as CCOD or OCOD."""
+    global _ccod_data, _ocod_data
+    body = request.get_json(force=True, silent=True) or {}
+    url  = body.get("url", "").strip()
+    ftype = body.get("type", "").lower()  # "ccod" or "ocod"
+
+    if not url:
+        return jsonify({"error": "No URL provided"}), 400
+
+    # Convert Google Drive share link to direct download
+    import re as _re
+    gd = _re.search(r'/file/d/([^/]+)', url)
+    if gd:
+        file_id = gd.group(1)
+        url = f"https://drive.google.com/uc?export=download&id={file_id}&confirm=t"
+
+    try:
+        resp = requests.get(url, stream=True, timeout=600,
+                            headers={"User-Agent": "Mozilla/5.0"})
+        resp.raise_for_status()
+    except Exception as e:
+        return jsonify({"error": f"Download failed: {e}"}), 502
+
+    # Determine filename
+    cd = resp.headers.get("Content-Disposition", "")
+    fn_match = _re.search(r'filename="?([^";]+)"?', cd)
+    filename = fn_match.group(1) if fn_match else (ftype.upper() + "_download.csv")
+    filename = secure_filename(filename)
+    if not filename.lower().endswith(".csv"):
+        filename += ".csv"
+    if ftype == "ccod" and "CCOD" not in filename.upper():
+        filename = "CCOD_" + filename
+    if ftype == "ocod" and "OCOD" not in filename.upper():
+        filename = "OCOD_" + filename
+
+    data_dir = Path(DATA_DIR)
+    data_dir.mkdir(parents=True, exist_ok=True)
+    dest = data_dir / filename
+
+    with open(str(dest), "wb") as f:
+        for chunk in resp.iter_content(chunk_size=8 * 1024 * 1024):
+            if chunk:
+                f.write(chunk)
+
+    fn_upper = filename.upper()
+    if "CCOD" in fn_upper:
+        _ccod_data = None
+        records = _load_ccod()
+        return jsonify({"status": "ok", "type": "CCOD", "records": len(records), "filename": filename})
+    elif "OCOD" in fn_upper:
+        _ocod_data = None
+        records = _load_ocod()
+        return jsonify({"status": "ok", "type": "OCOD", "records": len(records), "filename": filename})
+    return jsonify({"status": "ok", "type": "unknown", "filename": filename})
+
+
 @app.route("/settings")
 def settings_page():
     """Settings page for uploading data files and configuring API keys."""
