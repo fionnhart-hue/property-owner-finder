@@ -825,9 +825,30 @@ def load_from_url():
         url = f"https://drive.google.com/uc?export=download&id={file_id}&confirm=t"
 
     try:
-        resp = requests.get(url, stream=True, timeout=600,
-                            headers={"User-Agent": "Mozilla/5.0"})
-        resp.raise_for_status()
+        session = requests.Session()
+        session.headers.update({"User-Agent": "Mozilla/5.0"})
+        # First request — may return HTML warning page for large GDrive files
+        r1 = session.get(url, stream=False, timeout=60)
+        r1.raise_for_status()
+        ct = r1.headers.get("Content-Type", "")
+        if "text/html" in ct:
+            # Extract confirmation token from Google Drive warning page
+            tok = None
+            m = _re.search(r'confirm=([0-9A-Za-z_]+)', r1.text)
+            if m:
+                tok = m.group(1)
+            # Try usercontent.google.com direct download
+            if gd:
+                dl_url = f"https://drive.usercontent.google.com/download?id={gd.group(1)}&export=download&confirm=t"
+                if tok:
+                    dl_url += f"&uuid={tok}"
+            else:
+                dl_url = url + ("&confirm=t" if "?" in url else "?confirm=t")
+            resp = session.get(dl_url, stream=True, timeout=600)
+            resp.raise_for_status()
+        else:
+            resp = r1
+            resp.raw.decode_content = True
     except Exception as e:
         return jsonify({"error": f"Download failed: {e}"}), 502
 
