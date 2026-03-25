@@ -74,7 +74,7 @@ def ch_get(endpoint, params=None):
     _rate_limit_ch()
     url = f"{COMPANIES_HOUSE_BASE}{endpoint}"
     try:
-        resp = requests.get(url, params=params, auth=(COMPANIES_HOUSE_API_KEY, ""), timeout=15)
+        resp = requests.get(url, params=params, auth=(COMPANIES_HOUSE_API_KEY, ""), timeout=5)
         if resp.status_code == 200:
             return resp.json(), None
         elif resp.status_code == 404:
@@ -818,12 +818,22 @@ def lookup_property():
     # ── Source 3: Companies House ──
     ch_companies = []
     if COMPANIES_HOUSE_API_KEY:
+        # Hard budget covering ALL Companies House work for this lookup.
+        # Starts now so detail fetches + enrichment are all counted against it.
+        ch_budget = time.time() + 30
+
         ch_companies = search_companies_by_address(address)
 
+        # Fetch details for LR-confirmed company numbers not already in the CH list.
+        # Cap at 5 lookups and honour the budget to avoid runaway API calls.
+        lr_detail_done = 0
         for reg_no in lr_company_numbers:
+            if lr_detail_done >= 5 or time.time() > ch_budget:
+                break
             if any(c["company_number"] == reg_no for c in ch_companies):
                 continue
             details, err = get_company_details(reg_no)
+            lr_detail_done += 1
             if details:
                 ch_companies.append({
                     "company_number": reg_no,
@@ -840,17 +850,19 @@ def lookup_property():
         ch_companies.sort(key=lambda c: 0 if c.get("source") == "land_registry_owner" else 1)
 
         all_people = {}
-        ch_detail_budget = time.time() + 45  # hard 45-second cap on all CH enrichment
+        lr_enriched = 0   # cap LR owner enrichment too
+        ch_addr_enriched = 0  # cap CH-address enrichment
         for company in ch_companies:
-            # Always enrich LR-confirmed owners; for CH-address-matched companies
-            # only proceed if we still have time budget and have done ≤3 already.
-            is_lr_owner = company.get("source") == "land_registry_owner"
-            ch_addr_done = sum(1 for c in ch_companies if c.get("source") != "land_registry_owner" and "officers" in c)
-            if not is_lr_owner and (ch_addr_done >= 3 or time.time() > ch_detail_budget):
+            if time.time() > ch_budget:
                 company["officers"] = []
                 company["pscs"] = []
                 continue
-            if time.time() > ch_detail_budget:
+            is_lr_owner = company.get("source") == "land_registry_owner"
+            if is_lr_owner and lr_enriched >= 5:
+                company["officers"] = []
+                company["pscs"] = []
+                continue
+            if not is_lr_owner and ch_addr_enriched >= 3:
                 company["officers"] = []
                 company["pscs"] = []
                 continue
@@ -865,6 +877,11 @@ def lookup_property():
             if err:
                 result["warnings"].append(f"PSCs for {cn}: {err}")
             company["pscs"] = pscs
+
+            if is_lr_owner:
+                lr_enriched += 1
+            else:
+                ch_addr_enriched += 1
 
             for officer in officers:
                 name = officer["name"]
