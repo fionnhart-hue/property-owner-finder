@@ -285,11 +285,11 @@ def _search_csv_indexed(path, index, address, source_name):
     postcode_norm = postcode.replace(" ", "").upper()
     postcode_district = postcode.split()[0].upper() if " " in postcode else postcode_norm
 
-    # Gather offsets: exact match + district-level fallback
+    # Gather offsets: exact match, then district-level fallback only if nothing found
     offsets = list(index.get(postcode_norm, []))
-    if postcode_district != postcode_norm:
+    if not offsets and postcode_district != postcode_norm:
         for pc, pc_offsets in index.items():
-            if pc != postcode_norm and pc.startswith(postcode_district):
+            if pc.startswith(postcode_district):
                 offsets.extend(pc_offsets)
 
     if not offsets:
