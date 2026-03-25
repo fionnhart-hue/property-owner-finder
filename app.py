@@ -870,6 +870,26 @@ def load_from_url():
     return jsonify({"status": "ok", "type": "OCOD", "records": _ocod_row_count, "filename": filename})
 
 
+@app.route("/api/debug-csv-headers")
+def debug_csv_headers():
+    """Temporary: return first row + headers of CCOD/OCOD so we can verify column names."""
+    result = {}
+    for name, path_fn in [("ccod", _find_ccod_path), ("ocod", _find_ocod_path)]:
+        path = path_fn()
+        if not path or not path.exists():
+            result[name] = "file not found"
+            continue
+        try:
+            with open(str(path), "r", encoding="utf-8", errors="replace") as f:
+                reader = csv.DictReader(f)
+                headers = reader.fieldnames
+                first_row = next(reader, None)
+            result[name] = {"headers": headers, "sample_row": dict(first_row) if first_row else None}
+        except Exception as e:
+            result[name] = f"error: {e}"
+    return jsonify(result)
+
+
 @app.route("/settings")
 def settings_page():
     """Settings page for uploading data files and configuring API keys."""
