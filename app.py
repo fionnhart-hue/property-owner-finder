@@ -3,10 +3,10 @@ Property Owner Finder - Backend API (v2)
 Helps Appear Here's landlord team identify commercial property owners in London.
 
 Data sources:
-1. Companies House API (free) Ã¢ÂÂ companies registered at address, officers & PSCs
-2. Land Registry CCOD/OCOD datasets (free) Ã¢ÂÂ all UK/overseas company-owned property
-3. Land Registry Business Gateway API (paid, ÃÂ£3/search) Ã¢ÂÂ definitive title register
-4. LinkedIn Ã¢ÂÂ Google search links to find individuals
+1. Companies House API (free) - companies registered at address, officers & PSCs
+2. Land Registry CCOD/OCOD datasets (free) - all UK/overseas company-owned property
+3. Land Registry Business Gateway API (paid, £3/search) - definitive title register
+4. LinkedIn - Google search links to find individuals
 """
 
 import os
@@ -26,21 +26,28 @@ app = Flask(__name__, static_folder="static")
 CORS(app)
 app.config['MAX_CONTENT_LENGTH'] = 2 * 1024 * 1024 * 1024  # 2GB max upload
 
-# Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Configuration Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
+# ── Configuration ──────────────────────────────────────────────────────────────
 
 COMPANIES_HOUSE_API_KEY = os.environ.get("COMPANIES_HOUSE_API_KEY", "")
 COMPANIES_HOUSE_BASE = "https://api.company-information.service.gov.uk"
 
-# Land Registry Business Gateway (optional Ã¢ÂÂ for automated title searches)
+# Land Registry Business Gateway (optional – for automated title searches)
 LR_BUSINESS_GATEWAY_USER = os.environ.get("LR_BUSINESS_GATEWAY_USER", "")
 LR_BUSINESS_GATEWAY_PASS = os.environ.get("LR_BUSINESS_GATEWAY_PASS", "")
 
-# Path to CCOD/OCOD CSV files (downloaded from Land Registry Ã¢ÂÂ free)
+# Path to CCOD/OCOD CSV files (downloaded from Land Registry – free)
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 
 # Rate limiting for Companies House API (600 requests per 5 minutes)
 _last_ch_request_time = 0
 CH_MIN_INTERVAL = 0.5
+
+# ── File-path cache (NO data loaded into RAM) ──────────────────────────────────
+# We store only the file path, not the rows. Searches stream through the file.
+_ccod_path = None
+_ocod_path = None
+_ccod_row_count = None
+_ocod_row_count = None
 
 
 def _rate_limit_ch():
@@ -71,7 +78,7 @@ def ch_get(endpoint, params=None):
         return None, f"Connection error: {str(e)}"
 
 
-# Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Address Helpers Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
+# ── Address Helpers ────────────────────────────────────────────────────────────
 
 def extract_postcode(address):
     match = re.search(r"[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}", address.upper())
@@ -84,7 +91,7 @@ def extract_street_components(address):
 
 
 def normalise_for_matching(text):
-    """Lowercase, strip punctuation, collapse whitespace Ã¢ÂÂ for fuzzy address matching."""
+    """Lowercase, strip punctuation, collapse whitespace – for fuzzy address matching."""
     text = text.lower()
     text = re.sub(r"[^\w\s]", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
@@ -127,195 +134,192 @@ def address_match_score(query_address, candidate_address):
     return score
 
 
-# Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ CCOD / OCOD Dataset Search (FREE Land Registry data) Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
+# ── CCOD / OCOD Dataset Search (STREAMING – zero RAM overhead) ────────────────
 
-_ccod_data = None
-_ocod_data = None
-
-
-def _load_ccod():
-    """Load Commercial and Corporate Ownership Data CSV into memory."""
-    global _ccod_data
-    if _ccod_data is not None:
-        return _ccod_data
-
-    ccod_path = None
+def _find_ccod_path():
+    """Locate the CCOD CSV file. Returns Path or None. Does NOT load any data."""
+    global _ccod_path
+    if _ccod_path is not None and _ccod_path.exists():
+        return _ccod_path
     data_dir = Path(DATA_DIR)
     if data_dir.exists():
-        # Find the CCOD CSV (filename varies by month)
         for f in data_dir.glob("CCOD_*"):
-            ccod_path = f
-            break
-        if not ccod_path:
-            for f in data_dir.glob("ccod*"):
-                ccod_path = f
-                break
-
-    if not ccod_path or not ccod_path.exists():
-        _ccod_data = []
-        return _ccod_data
-
-    print(f"  Loading CCOD data from {ccod_path}...")
-    records = []
-    try:
-        with open(ccod_path, "r", encoding="utf-8", errors="replace") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                records.append(row)
-        print(f"  Loaded {len(records):,} CCOD records")
-    except Exception as e:
-        print(f"  Error loading CCOD: {e}")
-
-    _ccod_data = records
-    return _ccod_data
+            _ccod_path = f
+            return _ccod_path
+        for f in data_dir.glob("ccod*"):
+            _ccod_path = f
+            return _ccod_path
+    return None
 
 
-def _load_ocod():
-    """Load Overseas Companies Ownership Data CSV into memory."""
-    global _ocod_data
-    if _ocod_data is not None:
-        return _ocod_data
-
-    ocod_path = None
+def _find_ocod_path():
+    """Locate the OCOD CSV file. Returns Path or None. Does NOT load any data."""
+    global _ocod_path
+    if _ocod_path is not None and _ocod_path.exists():
+        return _ocod_path
     data_dir = Path(DATA_DIR)
     if data_dir.exists():
         for f in data_dir.glob("OCOD_*"):
-            ocod_path = f
-            break
-        if not ocod_path:
-            for f in data_dir.glob("ocod*"):
-                ocod_path = f
-                break
+            _ocod_path = f
+            return _ocod_path
+        for f in data_dir.glob("ocod*"):
+            _ocod_path = f
+            return _ocod_path
+    return None
 
-    if not ocod_path or not ocod_path.exists():
-        _ocod_data = []
-        return _ocod_data
 
-    print(f"  Loading OCOD data from {ocod_path}...")
-    records = []
+def _count_csv_rows(path):
+    """Count rows by streaming through the CSV. Uses O(1) memory."""
+    if not path or not path.exists():
+        return 0
+    count = 0
     try:
-        with open(ocod_path, "r", encoding="utf-8", errors="replace") as f:
+        with open(str(path), "r", encoding="utf-8", errors="replace") as f:
+            reader = csv.reader(f)
+            next(reader, None)  # skip header
+            for _ in reader:
+                count += 1
+    except Exception as e:
+        print(f"Count error: {e}")
+    return count
+
+
+def _save_row_count(path, count):
+    """Persist the row count to a tiny sidecar file so it survives restarts."""
+    try:
+        Path(str(path) + ".count").write_text(str(count))
+    except Exception:
+        pass
+
+
+def _read_row_count(path):
+    """Read the cached row count from the sidecar file (instant)."""
+    if not path:
+        return None
+    try:
+        p = Path(str(path) + ".count")
+        if p.exists():
+            return int(p.read_text().strip())
+    except Exception:
+        pass
+    return None
+
+
+def _search_csv(path, address, source_name):
+    """
+    Stream through a CSV file row-by-row and return rows matching address.
+    Memory usage is O(matches), not O(total rows) – safe for 5 GB files.
+    """
+    if not path or not path.exists():
+        return []
+
+    postcode = extract_postcode(address)
+    results = []
+
+    try:
+        with open(str(path), "r", encoding="utf-8", errors="replace") as f:
             reader = csv.DictReader(f)
             for row in reader:
-                records.append(row)
-        print(f"  Loaded {len(records):,} OCOD records")
-    except Exception as e:
-        print(f"  Error loading OCOD: {e}")
+                prop_addr = row.get("Property Address", "")
 
-    _ocod_data = records
-    return _ocod_data
+                # Fast pre-filter before expensive scoring
+                if postcode:
+                    if postcode.replace(" ", "").upper() not in prop_addr.replace(" ", "").upper():
+                        continue
+                else:
+                    street = extract_street_components(address)
+                    if normalise_for_matching(street) not in normalise_for_matching(prop_addr):
+                        continue
+
+                score = address_match_score(address, prop_addr)
+                if score >= 4:
+                    proprietors = []
+                    for i in range(1, 5):
+                        name = row.get(f"Proprietor Name ({i})", "").strip()
+                        if not name:
+                            continue
+                        proprietors.append({
+                            "name": name,
+                            "company_reg_no": row.get(f"Company Registration No. ({i})", "").strip(),
+                            "category": row.get(f"Proprietorship Category ({i})", "").strip(),
+                            "address": row.get(f"Proprietor ({i}) Address (1)", "").strip(),
+                            "country_incorporated": row.get(f"Country Incorporated ({i})", "").strip(),
+                        })
+                    results.append({
+                        "source": source_name,
+                        "title_number": row.get("Title Number", "").strip(),
+                        "tenure": row.get("Tenure", "").strip(),
+                        "property_address": prop_addr.strip(),
+                        "district": row.get("District", "").strip(),
+                        "proprietors": proprietors,
+                        "match_score": score,
+                    })
+    except Exception as e:
+        print(f"CSV search error in {path}: {e}")
+
+    return results
 
 
 def search_ccod_ocod(address):
     """
     Search CCOD and OCOD datasets for properties matching the given address.
-    Returns list of matches with owner company info.
+    Streams through CSV files – never holds the full dataset in RAM.
     """
-    ccod = _load_ccod()
-    ocod = _load_ocod()
+    ccod_path = _find_ccod_path()
+    ocod_path = _find_ocod_path()
 
-    postcode = extract_postcode(address)
     results = []
-
-    # CCOD columns: Title Number, Tenure, Property Address, District, Region,
-    #               Proprietor Name (1), Company Registration No. (1),
-    #               Proprietorship Category (1), Proprietor (1) Address (1), ...
-    for dataset, source_name in [(ccod, "CCOD"), (ocod, "OCOD")]:
-        for row in dataset:
-            prop_addr = row.get("Property Address", "")
-
-            # Quick pre-filter by postcode for performance
-            if postcode:
-                if postcode.replace(" ", "").upper() not in prop_addr.replace(" ", "").upper():
-                    continue
-            else:
-                # Without postcode, require at least street match
-                street = extract_street_components(address)
-                if normalise_for_matching(street) not in normalise_for_matching(prop_addr):
-                    continue
-
-            score = address_match_score(address, prop_addr)
-            if score >= 4:
-                # Extract up to 4 proprietors from CCOD/OCOD columns
-                proprietors = []
-                for i in range(1, 5):
-                    name_key = f"Proprietor Name ({i})"
-                    reg_key = f"Company Registration No. ({i})"
-                    cat_key = f"Proprietorship Category ({i})"
-                    addr_key = f"Proprietor ({i}) Address (1)"
-                    country_key = f"Country Incorporated ({i})"
-
-                    name = row.get(name_key, "").strip()
-                    if not name:
-                        continue
-                    proprietors.append({
-                        "name": name,
-                        "company_reg_no": row.get(reg_key, "").strip(),
-                        "category": row.get(cat_key, "").strip(),
-                        "address": row.get(addr_key, "").strip(),
-                        "country_incorporated": row.get(country_key, "").strip(),
-                    })
-
-                results.append({
-                    "source": source_name,
-                    "title_number": row.get("Title Number", "").strip(),
-                    "tenure": row.get("Tenure", "").strip(),
-                    "property_address": prop_addr.strip(),
-                    "district": row.get("District", "").strip(),
-                    "proprietors": proprietors,
-                    "match_score": score,
-                })
+    for path, source_name in [(ccod_path, "CCOD"), (ocod_path, "OCOD")]:
+        if path:
+            results.extend(_search_csv(path, address, source_name))
 
     results.sort(key=lambda x: x["match_score"], reverse=True)
     return results[:10]
 
 
-# Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Land Registry Business Gateway API Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
+# ── Land Registry Business Gateway API ────────────────────────────────────────
 
 def lr_business_gateway_search(address):
     """
     Search Land Registry Business Gateway for title information.
     Requires approved Business Gateway account.
-    Uses the Property Description enquiry (ÃÂ£3 per search).
+    Uses the Property Description enquiry (£3 per search).
     """
     if not LR_BUSINESS_GATEWAY_USER or not LR_BUSINESS_GATEWAY_PASS:
         return None, "not_configured"
 
-    # The Business Gateway uses a SOAP/XML API
-    # Documentation: https://www.gov.uk/guidance/hm-land-registry-business-gateway
     postcode = extract_postcode(address)
     street = extract_street_components(address)
 
-    # Build the SOAP request for RequestSearchByPropertyDescriptionV2_0
     soap_body = f"""<?xml version="1.0" encoding="UTF-8"?>
     <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/"
-                   xmlns:ns="http://www.oscre.org/ns/eReg-Final/2011/RequestSearchByPropertyDescriptionV2_0">
-        <soap:Header>
-            <wsse:Security xmlns:wsse="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd">
-                <wsse:UsernameToken>
-                    <wsse:Username>{LR_BUSINESS_GATEWAY_USER}</wsse:Username>
-                    <wsse:Password>{LR_BUSINESS_GATEWAY_PASS}</wsse:Password>
-                </wsse:UsernameToken>
-            </wsse:Security>
-        </soap:Header>
-        <soap:Body>
-            <ns:RequestSearchByPropertyDescriptionV2_0Service>
-                <ns:MessageId>POF-{int(time.time())}</ns:MessageId>
-                <ns:Product>
-                    <ns:ExternalReference>POF-{int(time.time())}</ns:ExternalReference>
-                    <ns:CustomerReference>AppearHere</ns:CustomerReference>
-                    <ns:SubjectProperty>
-                        <ns:Address>
-                            <ns:BuildingName/>
-                            <ns:BuildingNumber/>
-                            <ns:StreetName>{street}</ns:StreetName>
-                            <ns:CityName>London</ns:CityName>
-                            <ns:PostcodeZone>{postcode or ''}</ns:PostcodeZone>
-                        </ns:Address>
-                    </ns:SubjectProperty>
-                </ns:Product>
-            </ns:RequestSearchByPropertyDescriptionV2_0Service>
-        </soap:Body>
+        xmlns:ns="http://www.oscre.org/ns/eReg-Final/2011/RequestSearchByPropertyDescriptionV2_0">
+      <soap:Header>
+        <wsse:Security xmlns:wsse="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd">
+          <wsse:UsernameToken>
+            <wsse:Username>{LR_BUSINESS_GATEWAY_USER}</wsse:Username>
+            <wsse:Password>{LR_BUSINESS_GATEWAY_PASS}</wsse:Password>
+          </wsse:UsernameToken>
+        </wsse:Security>
+      </soap:Header>
+      <soap:Body>
+        <ns:RequestSearchByPropertyDescriptionV2_0Service>
+          <ns:MessageId>POF-{int(time.time())}</ns:MessageId>
+          <ns:Product>
+            <ns:ExternalReference>POF-{int(time.time())}</ns:ExternalReference>
+            <ns:CustomerReference>AppearHere</ns:CustomerReference>
+            <ns:SubjectProperty>
+              <ns:Address>
+                <ns:BuildingName/>
+                <ns:BuildingNumber/>
+                <ns:StreetName>{street}</ns:StreetName>
+                <ns:CityName>London</ns:CityName>
+                <ns:PostcodeZone>{postcode or ''}</ns:PostcodeZone>
+              </ns:Address>
+            </ns:SubjectProperty>
+          </ns:Product>
+        </ns:RequestSearchByPropertyDescriptionV2_0Service>
+      </soap:Body>
     </soap:Envelope>"""
 
     try:
@@ -328,20 +332,15 @@ def lr_business_gateway_search(address):
         )
 
         if resp.status_code == 200:
-            # Parse XML response to extract title numbers and proprietor names
-            # (Simplified Ã¢ÂÂ full XML parsing would use lxml in production)
             import xml.etree.ElementTree as ET
             root = ET.fromstring(resp.text)
-
             titles = []
-            # Extract title data from SOAP response
             for elem in root.iter():
                 if "TitleNumber" in elem.tag:
                     titles.append({"title_number": elem.text})
                 elif "ProprietorName" in elem.tag or "Proprietor" in elem.tag:
                     if titles:
                         titles[-1]["proprietor"] = elem.text
-
             return titles, None
         else:
             return None, f"Business Gateway error: {resp.status_code}"
@@ -349,7 +348,7 @@ def lr_business_gateway_search(address):
         return None, f"Business Gateway connection error: {str(e)}"
 
 
-# Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Companies House Lookups Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
+# ── Companies House Lookups ────────────────────────────────────────────────────
 
 def search_companies_by_address(address):
     results = []
@@ -478,7 +477,7 @@ def get_company_details(company_number):
     return data, None
 
 
-# Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Cross-referencing logic Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
+# ── Cross-referencing logic ────────────────────────────────────────────────────
 
 def cross_reference_results(ch_companies, lr_results):
     """
@@ -504,7 +503,6 @@ def cross_reference_results(ch_companies, lr_results):
         ch_company_numbers.add(ch["company_number"])
 
     if lr_owner_names and ch_company_names:
-        # Check if LR owner matches any CH company
         overlap_names = lr_owner_names & ch_company_names
         overlap_numbers = lr_company_numbers & ch_company_numbers
 
@@ -544,7 +542,7 @@ def cross_reference_results(ch_companies, lr_results):
     return insights
 
 
-# Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Link Generators Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
+# ── Link Generators ────────────────────────────────────────────────────────────
 
 def generate_land_registry_links(address):
     encoded = urllib.parse.quote(address)
@@ -568,7 +566,7 @@ def generate_linkedin_search(person_name, company_name=None, location="London"):
     return f"https://www.google.com/search?q={urllib.parse.quote(query)}"
 
 
-# Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ API Routes Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
+# ── API Routes ─────────────────────────────────────────────────────────────────
 
 @app.route("/")
 def index():
@@ -577,14 +575,17 @@ def index():
 
 @app.route("/api/status")
 def status():
-    ccod = _load_ccod()
-    ocod = _load_ocod()
+    ccod_path = _find_ccod_path()
+    ocod_path = _find_ocod_path()
+    # Use cached sidecar counts (instant); fall back to 1 if file exists but no count yet
+    ccod_count = _read_row_count(ccod_path) or (1 if ccod_path else 0)
+    ocod_count = _read_row_count(ocod_path) or (1 if ocod_path else 0)
     return jsonify({
         "status": "ok",
         "companies_house_configured": bool(COMPANIES_HOUSE_API_KEY),
         "land_registry_gateway_configured": bool(LR_BUSINESS_GATEWAY_USER),
-        "ccod_loaded": len(ccod),
-        "ocod_loaded": len(ocod),
+        "ccod_loaded": ccod_count,
+        "ocod_loaded": ocod_count,
     })
 
 
@@ -607,11 +608,11 @@ def lookup_property():
         "warnings": [],
     }
 
-    # Ã¢ÂÂÃ¢ÂÂ Source 1: CCOD/OCOD free datasets Ã¢ÂÂÃ¢ÂÂ
+    # ── Source 1: CCOD/OCOD free datasets ──
     lr_results = search_ccod_ocod(address)
     result["land_registry_data"] = lr_results
 
-    # If we found LR data, also look up those companies on Companies House for officers/PSCs
+    # If we found LR data, also look up those companies on Companies House
     lr_company_numbers = set()
     for lr in lr_results:
         for prop in lr.get("proprietors", []):
@@ -619,7 +620,7 @@ def lookup_property():
             if reg_no:
                 lr_company_numbers.add(reg_no)
 
-    # Ã¢ÂÂÃ¢ÂÂ Source 2: Land Registry Business Gateway (if configured) Ã¢ÂÂÃ¢ÂÂ
+    # ── Source 2: Land Registry Business Gateway (if configured) ──
     if LR_BUSINESS_GATEWAY_USER:
         gateway_results, gateway_err = lr_business_gateway_search(address)
         if gateway_err and gateway_err != "not_configured":
@@ -627,15 +628,12 @@ def lookup_property():
         elif gateway_results:
             result["land_registry_gateway"] = gateway_results
 
-    # Ã¢ÂÂÃ¢ÂÂ Source 3: Companies House Ã¢ÂÂÃ¢ÂÂ
+    # ── Source 3: Companies House ──
     ch_companies = []
     if COMPANIES_HOUSE_API_KEY:
-        # Search for companies registered at the address
         ch_companies = search_companies_by_address(address)
 
-        # Also look up companies found via Land Registry
         for reg_no in lr_company_numbers:
-            # Check if already found
             if any(c["company_number"] == reg_no for c in ch_companies):
                 continue
             details, err = get_company_details(reg_no)
@@ -651,7 +649,6 @@ def lookup_property():
                     "source": "land_registry_owner",
                 })
 
-        # Get officers and PSCs for each company
         all_people = {}
         for company in ch_companies:
             cn = company["company_number"]
@@ -691,13 +688,13 @@ def lookup_property():
     else:
         result["warnings"].append("Companies House API key not set. Set COMPANIES_HOUSE_API_KEY for company lookups.")
 
-    # Ã¢ÂÂÃ¢ÂÂ Cross-reference Ã¢ÂÂÃ¢ÂÂ
+    # ── Cross-reference ──
     result["insights"] = cross_reference_results(ch_companies, lr_results)
 
     if not ch_companies and not lr_results:
         result["warnings"].append(
             "No ownership data found from any source. Use the Land Registry title search link "
-            "(ÃÂ£3) for definitive ownership Ã¢ÂÂ it covers all properties including individually owned ones."
+            "(£3) for definitive ownership – it covers all properties including individually owned ones."
         )
 
     return jsonify(result)
@@ -732,7 +729,7 @@ def batch_lookup():
 @app.route("/api/upload-data", methods=["POST"])
 def upload_data():
     """Upload CCOD or OCOD CSV file via the browser."""
-    global _ccod_data, _ocod_data
+    global _ccod_path, _ocod_path, _ccod_row_count, _ocod_row_count
 
     if "file" not in request.files:
         return jsonify({"error": "No file provided"}), 400
@@ -749,16 +746,17 @@ def upload_data():
     dest = data_dir / filename
     file.save(str(dest))
 
-    # Reset cached data so it reloads on next query
     fn_upper = filename.upper()
     if "CCOD" in fn_upper:
-        _ccod_data = None
-        records = _load_ccod()
-        return jsonify({"status": "ok", "type": "CCOD", "records": len(records), "filename": filename})
+        _ccod_path = dest
+        _ccod_row_count = _count_csv_rows(dest)
+        _save_row_count(dest, _ccod_row_count)
+        return jsonify({"status": "ok", "type": "CCOD", "records": _ccod_row_count, "filename": filename})
     elif "OCOD" in fn_upper:
-        _ocod_data = None
-        records = _load_ocod()
-        return jsonify({"status": "ok", "type": "OCOD", "records": len(records), "filename": filename})
+        _ocod_path = dest
+        _ocod_row_count = _count_csv_rows(dest)
+        _save_row_count(dest, _ocod_row_count)
+        return jsonify({"status": "ok", "type": "OCOD", "records": _ocod_row_count, "filename": filename})
     else:
         return jsonify({
             "status": "ok",
@@ -768,16 +766,15 @@ def upload_data():
         })
 
 
-
 @app.route("/api/upload-chunk", methods=["POST"])
 def upload_chunk():
     """Accept one chunk of a chunked CSV upload; assemble when all chunks received."""
-    global _ccod_data, _ocod_data
+    global _ccod_path, _ocod_path, _ccod_row_count, _ocod_row_count
     chunk_file = request.files.get("chunk")
-    upload_id  = request.form.get("uploadId", "")
-    chunk_idx  = int(request.form.get("chunkIndex", 0))
-    total      = int(request.form.get("totalChunks", 1))
-    filename   = secure_filename(request.form.get("filename", "upload.csv"))
+    upload_id = request.form.get("uploadId", "")
+    chunk_idx = int(request.form.get("chunkIndex", 0))
+    total = int(request.form.get("totalChunks", 1))
+    filename = secure_filename(request.form.get("filename", "upload.csv"))
     if not chunk_file or not upload_id:
         return jsonify({"error": "Missing chunk or uploadId"}), 400
     tmp_dir = Path("/tmp") / upload_id
@@ -796,42 +793,40 @@ def upload_chunk():
     shutil.rmtree(str(tmp_dir), ignore_errors=True)
     fn_upper = filename.upper()
     if "CCOD" in fn_upper:
-        _ccod_data = None
-        records = _load_ccod()
-        return jsonify({"status": "ok", "type": "CCOD", "records": len(records), "filename": filename})
+        _ccod_path = dest
+        _ccod_row_count = _count_csv_rows(dest)
+        _save_row_count(dest, _ccod_row_count)
+        return jsonify({"status": "ok", "type": "CCOD", "records": _ccod_row_count, "filename": filename})
     elif "OCOD" in fn_upper:
-        _ocod_data = None
-        records = _load_ocod()
-        return jsonify({"status": "ok", "type": "OCOD", "records": len(records), "filename": filename})
+        _ocod_path = dest
+        _ocod_row_count = _count_csv_rows(dest)
+        _save_row_count(dest, _ocod_row_count)
+        return jsonify({"status": "ok", "type": "OCOD", "records": _ocod_row_count, "filename": filename})
     return jsonify({"status": "ok", "type": "unknown", "filename": filename})
 
 
 @app.route("/api/load-from-url", methods=["POST"])
 def load_from_url():
-    global _ccod_data, _ocod_data
-    body  = request.get_json(force=True, silent=True) or {}
-    url   = body.get("url", "").strip()
+    global _ccod_path, _ocod_path, _ccod_row_count, _ocod_row_count
+    body = request.get_json(force=True, silent=True) or {}
+    url = body.get("url", "").strip()
     ftype = body.get("type", "").lower()
     if not url:
         return jsonify({"error": "No URL provided"}), 400
-    # Extract Google Drive file ID from share URL
     import re as _re
     gd = _re.search(r"/(?:file/d/|open[?]id=)([a-zA-Z0-9_-]{20,})", url)
     if not gd:
         return jsonify({"error": "Could not find a Google Drive file ID in that URL"}), 400
     file_id = gd.group(1)
-    # Use requests.Session so cookies persist across redirects
     session = requests.Session()
     session.headers["User-Agent"] = "Mozilla/5.0"
     base = "https://drive.google.com/uc"
     params = {"export": "download", "id": file_id}
-    # First request â Google may set a download_warning cookie for large files
     try:
         r1 = session.get(base, params=params, timeout=60)
         r1.raise_for_status()
     except Exception as exc:
         return jsonify({"error": "Could not reach Google Drive: " + str(exc)}), 502
-    # Check for confirmation cookie (large file virus scan warning)
     confirm = None
     for k, v in session.cookies.items():
         if "download_warning" in k:
@@ -840,17 +835,14 @@ def load_from_url():
     if confirm:
         params["confirm"] = confirm
     elif "text/html" in r1.headers.get("Content-Type", ""):
-        # Fallback: usercontent domain
         base = "https://drive.usercontent.google.com/download"
         params["confirm"] = "t"
         params["authuser"] = "0"
-    # Stream the actual CSV
     try:
         resp = session.get(base, params=params, stream=True, timeout=600)
         resp.raise_for_status()
     except Exception as exc:
         return jsonify({"error": "Download failed: " + str(exc)}), 502
-    # Determine filename
     if ftype == "ccod":
         filename = "CCOD_data.csv"
     else:
@@ -866,13 +858,16 @@ def load_from_url():
                 written += len(chunk)
     if written < 1000:
         return jsonify({"error": "Downloaded file too small (" + str(written) + " bytes). Check sharing is set to Anyone with the link."}), 502
+    # Count rows by streaming (no RAM spike) and cache to sidecar file
     if ftype == "ccod":
-        _ccod_data = None
-        records = _load_ccod()
-        return jsonify({"status": "ok", "type": "CCOD", "records": len(records), "filename": filename})
-    _ocod_data = None
-    records = _load_ocod()
-    return jsonify({"status": "ok", "type": "OCOD", "records": len(records), "filename": filename})
+        _ccod_path = dest
+        _ccod_row_count = _count_csv_rows(dest)
+        _save_row_count(dest, _ccod_row_count)
+        return jsonify({"status": "ok", "type": "CCOD", "records": _ccod_row_count, "filename": filename})
+    _ocod_path = dest
+    _ocod_row_count = _count_csv_rows(dest)
+    _save_row_count(dest, _ocod_row_count)
+    return jsonify({"status": "ok", "type": "OCOD", "records": _ocod_row_count, "filename": filename})
 
 
 @app.route("/settings")
@@ -893,21 +888,19 @@ def company_detail(company_number):
     return jsonify({"details": details, "officers": officers, "pscs": pscs})
 
 
-# Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂ Main Ã¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂÃ¢ÂÂ
+# ── Main ───────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
 
-    # Pre-load datasets on startup
-    ccod = _load_ccod()
-    ocod = _load_ocod()
-
     print(f"\n{'='*60}")
-    print(f"  Property Owner Finder v2")
-    print(f"  http://localhost:{port}")
-    print(f"  Companies House API:     {'OK' if COMPANIES_HOUSE_API_KEY else 'NOT SET'}")
-    print(f"  LR Business Gateway:     {'OK' if LR_BUSINESS_GATEWAY_USER else 'NOT SET (optional)'}")
-    print(f"  CCOD records loaded:     {len(ccod):,}")
-    print(f"  OCOD records loaded:     {len(ocod):,}")
+    print(f" Property Owner Finder v2")
+    print(f" http://localhost:{port}")
+    print(f" Companies House API: {'OK' if COMPANIES_HOUSE_API_KEY else 'NOT SET'}")
+    print(f" LR Business Gateway: {'OK' if LR_BUSINESS_GATEWAY_USER else 'NOT SET (optional)'}")
+    ccod_path = _find_ccod_path()
+    ocod_path = _find_ocod_path()
+    print(f" CCOD data file: {ccod_path or 'not found – load via /settings'}")
+    print(f" OCOD data file: {ocod_path or 'not found – load via /settings'}")
     print(f"{'='*60}\n")
     app.run(host="0.0.0.0", port=port, debug=True)
