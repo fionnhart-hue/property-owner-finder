@@ -38,6 +38,12 @@ LR_BUSINESS_GATEWAY_PASS = os.environ.get("LR_BUSINESS_GATEWAY_PASS", "")
 # Path to CCOD/OCOD CSV files (downloaded from Land Registry – free)
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 
+# Optional: Google Drive file IDs for auto-loading on startup after a redeploy.
+# Set these as Railway env vars so data survives container restarts.
+# e.g. CCOD_GDRIVE_ID=14gBap0Xaozz-p-1NsoFJ6zM6C_rAhcL7
+CCOD_GDRIVE_ID = os.environ.get("CCOD_GDRIVE_ID", "")
+OCOD_GDRIVE_ID = os.environ.get("OCOD_GDRIVE_ID", "")
+
 # Rate limiting for Companies House API (600 requests per 5 minutes)
 _last_ch_request_time = 0
 CH_MIN_INTERVAL = 0.5
@@ -209,11 +215,18 @@ def _search_csv(path, address, source_name):
     """
     Stream through a CSV file row-by-row and return rows matching address.
     Memory usage is O(matches), not O(total rows) – safe for 5 GB files.
+
+    NOTE: CCOD/OCOD CSVs have a separate "Postcode" column – the "Property Address"
+    field contains only the street address without postcode. We must check both.
     """
     if not path or not path.exists():
         return []
 
     postcode = extract_postcode(address)
+    # Normalised postcode for fast pre-filter (no spaces, uppercase)
+    postcode_norm = postcode.replace(" ", "").upper() if postcode else None
+    # District (outward code) for looser fallback, e.g. "W1F" from "W1F 8SJ"
+    postcode_district = postcode.split()[0].upper() if postcode and " " in postcode else postcode_norm
     results = []
 
     try:
@@ -221,17 +234,27 @@ def _search_csv(path, address, source_name):
             reader = csv.DictReader(f)
             for row in reader:
                 prop_addr = row.get("Property Address", "")
+                # CCOD/OCOD store the postcode in its own column
+                row_postcode = row.get("Postcode", "").replace(" ", "").upper()
 
-                # Fast pre-filter before expensive scoring
-                if postcode:
-                    if postcode.replace(" ", "").upper() not in prop_addr.replace(" ", "").upper():
-                        continue
+                # Fast pre-filter: postcode must match (or street if no postcode given)
+                if postcode_norm:
+                    if row_postcode != postcode_norm:
+                        # Also allow district-only match (e.g. W1F matches W1F 8SJ)
+                        if not (postcode_district and row_postcode.startswith(postcode_district)):
+                            continue
                 else:
                     street = extract_street_components(address)
                     if normalise_for_matching(street) not in normalise_for_matching(prop_addr):
                         continue
 
-                score = address_match_score(address, prop_addr)
+                # Build a combined candidate address for scoring (street + postcode)
+                row_postcode_display = row.get("Postcode", "").strip()
+                candidate = prop_addr.strip()
+                if row_postcode_display and row_postcode_display not in candidate:
+                    candidate = candidate + " " + row_postcode_display
+
+                score = address_match_score(address, candidate)
                 if score >= 4:
                     proprietors = []
                     for i in range(1, 5):
@@ -249,7 +272,7 @@ def _search_csv(path, address, source_name):
                         "source": source_name,
                         "title_number": row.get("Title Number", "").strip(),
                         "tenure": row.get("Tenure", "").strip(),
-                        "property_address": prop_addr.strip(),
+                        "property_address": candidate,
                         "district": row.get("District", "").strip(),
                         "proprietors": proprietors,
                         "match_score": score,
@@ -908,7 +931,97 @@ def company_detail(company_number):
     return jsonify({"details": details, "officers": officers, "pscs": pscs})
 
 
+def _gdrive_download(file_id, dest_path):
+    """Download a file from Google Drive by file ID. Returns (bytes_written, error)."""
+    session = requests.Session()
+    session.headers["User-Agent"] = "Mozilla/5.0"
+    base = "https://drive.google.com/uc"
+    params = {"export": "download", "id": file_id}
+    try:
+        r1 = session.get(base, params=params, timeout=60)
+        r1.raise_for_status()
+    except Exception as exc:
+        return 0, str(exc)
+    confirm = None
+    for k, v in session.cookies.items():
+        if "download_warning" in k:
+            confirm = v
+            break
+    if confirm:
+        params["confirm"] = confirm
+    elif "text/html" in r1.headers.get("Content-Type", ""):
+        base = "https://drive.usercontent.google.com/download"
+        params["confirm"] = "t"
+        params["authuser"] = "0"
+    try:
+        resp = session.get(base, params=params, stream=True, timeout=600)
+        resp.raise_for_status()
+    except Exception as exc:
+        return 0, str(exc)
+    written = 0
+    Path(dest_path).parent.mkdir(parents=True, exist_ok=True)
+    with open(str(dest_path), "wb") as f:
+        for chunk in resp.iter_content(chunk_size=8 * 1024 * 1024):
+            if chunk:
+                f.write(chunk)
+                written += len(chunk)
+    return written, None
+
+
+def _auto_load_from_env():
+    """
+    If CCOD_GDRIVE_ID / OCOD_GDRIVE_ID env vars are set and the data files
+    are missing, download them automatically. Runs once at startup in a
+    background thread so it doesn't block the web server from starting.
+    """
+    global _ccod_path, _ocod_path, _ccod_row_count, _ocod_row_count
+    import threading
+
+    def _load():
+        global _ccod_path, _ocod_path, _ccod_row_count, _ocod_row_count
+        data_dir = Path(DATA_DIR)
+        data_dir.mkdir(parents=True, exist_ok=True)
+
+        for ftype, gdrive_id, filename, path_var, count_var in [
+            ("CCOD", CCOD_GDRIVE_ID, "CCOD_data.csv", "_ccod_path", "_ccod_row_count"),
+            ("OCOD", OCOD_GDRIVE_ID, "OCOD_data.csv", "_ocod_path", "_ocod_row_count"),
+        ]:
+            if not gdrive_id:
+                continue
+            dest = data_dir / filename
+            if dest.exists() and dest.stat().st_size > 10000:
+                print(f"[startup] {ftype} already present at {dest}")
+                if ftype == "CCOD":
+                    _ccod_path = dest
+                    _ccod_row_count = _read_row_count(dest)
+                else:
+                    _ocod_path = dest
+                    _ocod_row_count = _read_row_count(dest)
+                continue
+            print(f"[startup] Downloading {ftype} from Google Drive (id={gdrive_id})…")
+            written, err = _gdrive_download(gdrive_id, dest)
+            if err or written < 1000:
+                print(f"[startup] {ftype} download failed: {err or 'too small'}")
+                continue
+            print(f"[startup] {ftype} downloaded ({written:,} bytes). Counting rows…")
+            count = _count_csv_rows(dest)
+            _save_row_count(dest, count)
+            if ftype == "CCOD":
+                _ccod_path = dest
+                _ccod_row_count = count
+            else:
+                _ocod_path = dest
+                _ocod_row_count = count
+            print(f"[startup] {ftype} ready — {count:,} records")
+
+    t = threading.Thread(target=_load, daemon=True)
+    t.start()
+
+
 # ── Main ───────────────────────────────────────────────────────────────────────
+
+# Trigger auto-load when the module is imported (i.e. on every container start)
+_auto_load_from_env()
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
@@ -918,9 +1031,7 @@ if __name__ == "__main__":
     print(f" http://localhost:{port}")
     print(f" Companies House API: {'OK' if COMPANIES_HOUSE_API_KEY else 'NOT SET'}")
     print(f" LR Business Gateway: {'OK' if LR_BUSINESS_GATEWAY_USER else 'NOT SET (optional)'}")
-    ccod_path = _find_ccod_path()
-    ocod_path = _find_ocod_path()
-    print(f" CCOD data file: {ccod_path or 'not found – load via /settings'}")
-    print(f" OCOD data file: {ocod_path or 'not found – load via /settings'}")
+    print(f" CCOD auto-load: {'enabled (id=' + CCOD_GDRIVE_ID + ')' if CCOD_GDRIVE_ID else 'disabled'}")
+    print(f" OCOD auto-load: {'enabled (id=' + OCOD_GDRIVE_ID + ')' if OCOD_GDRIVE_ID else 'disabled'}")
     print(f"{'='*60}\n")
     app.run(host="0.0.0.0", port=port, debug=True)
