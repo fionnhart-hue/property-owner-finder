@@ -178,9 +178,25 @@ def _find_ocod_path():
 
 
 def _count_csv_rows(path):
-    """Count rows by streaming through the CSV. Uses O(1) memory."""
+    """
+    Count data rows in a CSV. Uses `wc -l` (fast C subprocess, no GIL) and
+    falls back to Python streaming if wc is unavailable.
+    """
     if not path or not path.exists():
         return 0
+    # Fast path: wc -l gives line count in ~1 s even for multi-GB files
+    try:
+        import subprocess
+        res = subprocess.run(
+            ["wc", "-l", str(path)],
+            capture_output=True, text=True, timeout=60
+        )
+        if res.returncode == 0:
+            lines = int(res.stdout.strip().split()[0])
+            return max(0, lines - 1)  # subtract the header row
+    except Exception as e:
+        print(f"[wc] fast count failed ({e}), falling back to Python scan")
+    # Slow fallback: pure-Python streaming scan
     count = 0
     try:
         with open(str(path), "r", encoding="utf-8", errors="replace") as f:
