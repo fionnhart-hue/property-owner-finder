@@ -12,4 +12,4 @@ RUN mkdir -p /app/data
 
 EXPOSE 5000
 
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--timeout", "600", "--workers", "1", "--worker-class", "sync", "--max-requests", "100", "app:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--timeout", "1200", "--workers", "1", "--threads", "4", "--worker-class", "gthread", "app:app"]
