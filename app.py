@@ -126,6 +126,20 @@ def address_match_score(query_address, candidate_address):
         elif q_postcode.split()[0] == c_postcode.split()[0]:
             score += 2
 
+    # House/building number check.
+    # Strip the postcode portion so we don't accidentally match on postcode digits.
+    pc_pattern = r'[A-Za-z]{1,2}\d[A-Za-z\d]?\s*\d[A-Za-z]{2}'
+    q_no_pc = re.sub(pc_pattern, '', q, flags=re.IGNORECASE).strip()
+    c_no_pc = re.sub(pc_pattern, '', c, flags=re.IGNORECASE).strip()
+    # The first numeric token in the address is the house/building number.
+    q_num_m = re.search(r'\b(\d+[a-z]?)\b', q_no_pc)
+    c_num_m = re.search(r'\b(\d+[a-z]?)\b', c_no_pc)
+    if q_num_m and c_num_m:
+        if q_num_m.group(1) == c_num_m.group(1):
+            score += 2   # bonus for correct number
+        else:
+            score -= 4   # strong penalty for wrong number
+
     # Street-level word overlap
     q_words = set(w for w in q.split() if len(w) > 2)
     c_words = set(w for w in c.split() if len(w) > 2)
