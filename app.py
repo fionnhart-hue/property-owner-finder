@@ -299,12 +299,17 @@ def _search_csv_indexed(path, index, address, source_name):
     postcode_norm = postcode.replace(" ", "").upper()
     postcode_district = postcode.split()[0].upper() if " " in postcode else postcode_norm
 
-    # Gather offsets: exact match, then district-level fallback only if nothing found
+    # Gather offsets: exact postcode match.
+    # District-level fallback only runs when the caller supplied just a district
+    # (e.g. "W9") rather than a full postcode (e.g. "W9 2DU").  A full postcode
+    # contains a space, so if we have one and nothing matched exactly, the
+    # property simply isn't in this dataset — don't scan the whole district.
+    has_full_postcode = " " in postcode  # "W9 2DU" → True; "W9" → False
     offsets = list(index.get(postcode_norm, []))
-    if not offsets and postcode_district != postcode_norm:
+    if not offsets and not has_full_postcode and postcode_district != postcode_norm:
         for pc, pc_offsets in index.items():
             if pc.startswith(postcode_district):
-                offsets.extend(pc_offsets)
+                offsets.extend(pc_offsets[:500])  # cap per-postcode to stay sane
 
     if not offsets:
         return []
@@ -407,10 +412,15 @@ def _search_csv(path, address, source_name):
                 # CCOD/OCOD store the postcode in its own column
                 row_postcode = row.get("Postcode", "").replace(" ", "").upper()
 
-                # Fast pre-filter: postcode must match (or street if no postcode given)
+                # Fast pre-filter: postcode must match (or street if no postcode given).
+                # If the caller supplied a full postcode (contains a space, e.g. "W9 2DU"),
+                # only accept exact matches — do not expand to the whole district.
+                has_full_postcode = postcode and " " in postcode
                 if postcode_norm:
                     if row_postcode != postcode_norm:
-                        # Also allow district-only match (e.g. W1F matches W1F 8SJ)
+                        if has_full_postcode:
+                            continue  # full postcode given → exact match only
+                        # district-only fallback (e.g. query had just "W9")
                         if not (postcode_district and row_postcode.startswith(postcode_district)):
                             continue
                 else:
