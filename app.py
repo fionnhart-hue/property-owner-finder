@@ -836,8 +836,25 @@ def lookup_property():
                     "source": "land_registry_owner",
                 })
 
+        # Sort: LR-confirmed owners first, then CH address-matched companies
+        ch_companies.sort(key=lambda c: 0 if c.get("source") == "land_registry_owner" else 1)
+
         all_people = {}
+        ch_detail_budget = time.time() + 45  # hard 45-second cap on all CH enrichment
         for company in ch_companies:
+            # Always enrich LR-confirmed owners; for CH-address-matched companies
+            # only proceed if we still have time budget and have done ≤3 already.
+            is_lr_owner = company.get("source") == "land_registry_owner"
+            ch_addr_done = sum(1 for c in ch_companies if c.get("source") != "land_registry_owner" and "officers" in c)
+            if not is_lr_owner and (ch_addr_done >= 3 or time.time() > ch_detail_budget):
+                company["officers"] = []
+                company["pscs"] = []
+                continue
+            if time.time() > ch_detail_budget:
+                company["officers"] = []
+                company["pscs"] = []
+                continue
+
             cn = company["company_number"]
             officers, err = get_company_officers(cn)
             if err:
