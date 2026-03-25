@@ -54,6 +54,9 @@ _ccod_path = None
 _ocod_path = None
 _ccod_row_count = None
 _ocod_row_count = None
+# Postcode → list of byte offsets index (built once after load, O(1) lookups)
+_ccod_index = {}
+_ocod_index = {}
 
 
 def _rate_limit_ch():
@@ -190,6 +193,143 @@ def _count_csv_rows(path):
     return count
 
 
+def _build_postcode_index(path):
+    """
+    Stream through the CSV once and build a postcode→[byte_offset] index.
+    Returns (index_dict, row_count).
+    Subsequent lookups use this index to seek directly to matching rows,
+    making searches O(matches) instead of O(total_rows).
+    """
+    index = {}
+    count = 0
+    if not path or not path.exists():
+        return index, count
+    try:
+        with open(str(path), "rb") as f:
+            header_bytes = f.readline()
+            header = header_bytes.decode("utf-8", errors="replace").rstrip("\r\n")
+            # Find the Postcode column index
+            cols = [c.strip().strip('"') for c in next(csv.reader([header]))]
+            try:
+                pc_idx = cols.index("Postcode")
+            except ValueError:
+                print(f"[index] 'Postcode' column not found in {path}. Found: {cols[:10]}")
+                return index, count
+            while True:
+                offset = f.tell()
+                line_bytes = f.readline()
+                if not line_bytes:
+                    break
+                count += 1
+                try:
+                    line = line_bytes.decode("utf-8", errors="replace").rstrip("\r\n")
+                    fields = next(csv.reader([line]))
+                    if len(fields) > pc_idx:
+                        pc = fields[pc_idx].replace(" ", "").upper()
+                        if pc:
+                            if pc not in index:
+                                index[pc] = []
+                            index[pc].append(offset)
+                except Exception:
+                    pass
+    except Exception as e:
+        print(f"[index] Error building index for {path}: {e}")
+    return index, count
+
+
+def _trigger_index_build(path, ftype):
+    """Kick off a background thread to build the postcode index for ftype='ccod'|'ocod'."""
+    import threading
+    def _build():
+        global _ccod_index, _ocod_index
+        print(f"[index] Building postcode index for {ftype.upper()}…")
+        idx, count = _build_postcode_index(path)
+        if ftype == "ccod":
+            _ccod_index = idx
+        else:
+            _ocod_index = idx
+        unique = len(idx)
+        print(f"[index] {ftype.upper()} index ready — {unique:,} unique postcodes covering {count:,} rows")
+    threading.Thread(target=_build, daemon=True).start()
+
+
+def _search_csv_indexed(path, index, address, source_name):
+    """
+    Fast lookup using the pre-built postcode index.
+    Opens the file only for the rows matching the queried postcode.
+    Falls back to streaming scan if no postcode in address.
+    """
+    if not path or not path.exists() or not index:
+        return _search_csv(path, address, source_name)
+
+    postcode = extract_postcode(address)
+    if not postcode:
+        return _search_csv(path, address, source_name)
+
+    postcode_norm = postcode.replace(" ", "").upper()
+    postcode_district = postcode.split()[0].upper() if " " in postcode else postcode_norm
+
+    # Gather offsets: exact match + district-level fallback
+    offsets = list(index.get(postcode_norm, []))
+    if postcode_district != postcode_norm:
+        for pc, pc_offsets in index.items():
+            if pc != postcode_norm and pc.startswith(postcode_district):
+                offsets.extend(pc_offsets)
+
+    if not offsets:
+        return []
+
+    results = []
+    try:
+        with open(str(path), "r", encoding="utf-8", errors="replace") as fh:
+            reader = csv.DictReader(fh)
+            fieldnames = reader.fieldnames or []
+
+        with open(str(path), "rb") as fh:
+            for offset in offsets:
+                try:
+                    fh.seek(offset)
+                    line = fh.readline().decode("utf-8", errors="replace").rstrip("\r\n")
+                    values = next(csv.reader([line]))
+                    row = dict(zip(fieldnames, values))
+
+                    prop_addr = row.get("Property Address", "")
+                    row_postcode_display = row.get("Postcode", "").strip()
+                    candidate = prop_addr.strip()
+                    if row_postcode_display and row_postcode_display not in candidate:
+                        candidate = candidate + " " + row_postcode_display
+
+                    score = address_match_score(address, candidate)
+                    if score >= 4:
+                        proprietors = []
+                        for i in range(1, 5):
+                            name = row.get(f"Proprietor Name ({i})", "").strip()
+                            if not name:
+                                continue
+                            proprietors.append({
+                                "name": name,
+                                "company_reg_no": row.get(f"Company Registration No. ({i})", "").strip(),
+                                "category": row.get(f"Proprietorship Category ({i})", "").strip(),
+                                "address": row.get(f"Proprietor ({i}) Address (1)", "").strip(),
+                                "country_incorporated": row.get(f"Country Incorporated ({i})", "").strip(),
+                            })
+                        results.append({
+                            "source": source_name,
+                            "title_number": row.get("Title Number", "").strip(),
+                            "tenure": row.get("Tenure", "").strip(),
+                            "property_address": candidate,
+                            "district": row.get("District", "").strip(),
+                            "proprietors": proprietors,
+                            "match_score": score,
+                        })
+                except Exception:
+                    pass
+    except Exception as e:
+        print(f"[indexed_search] Error in {path}: {e}")
+
+    return results
+
+
 def _save_row_count(path, count):
     """Persist the row count to a tiny sidecar file so it survives restarts."""
     try:
@@ -286,15 +426,21 @@ def _search_csv(path, address, source_name):
 def search_ccod_ocod(address):
     """
     Search CCOD and OCOD datasets for properties matching the given address.
-    Streams through CSV files – never holds the full dataset in RAM.
+    Uses the postcode index (O(matches)) when built; falls back to streaming scan.
     """
     ccod_path = _find_ccod_path()
     ocod_path = _find_ocod_path()
 
     results = []
-    for path, source_name in [(ccod_path, "CCOD"), (ocod_path, "OCOD")]:
+    for path, source_name, index in [
+        (ccod_path, "CCOD", _ccod_index),
+        (ocod_path, "OCOD", _ocod_index),
+    ]:
         if path:
-            results.extend(_search_csv(path, address, source_name))
+            if index:
+                results.extend(_search_csv_indexed(path, index, address, source_name))
+            else:
+                results.extend(_search_csv(path, address, source_name))
 
     results.sort(key=lambda x: x["match_score"], reverse=True)
     return results[:10]
@@ -609,6 +755,8 @@ def status():
         "land_registry_gateway_configured": bool(LR_BUSINESS_GATEWAY_USER),
         "ccod_loaded": ccod_count,
         "ocod_loaded": ocod_count,
+        "ccod_index_size": len(_ccod_index),
+        "ocod_index_size": len(_ocod_index),
     })
 
 
@@ -774,11 +922,13 @@ def upload_data():
         _ccod_path = dest
         _ccod_row_count = _count_csv_rows(dest)
         _save_row_count(dest, _ccod_row_count)
+        _trigger_index_build(dest, "ccod")
         return jsonify({"status": "ok", "type": "CCOD", "records": _ccod_row_count, "filename": filename})
     elif "OCOD" in fn_upper:
         _ocod_path = dest
         _ocod_row_count = _count_csv_rows(dest)
         _save_row_count(dest, _ocod_row_count)
+        _trigger_index_build(dest, "ocod")
         return jsonify({"status": "ok", "type": "OCOD", "records": _ocod_row_count, "filename": filename})
     else:
         return jsonify({
@@ -819,11 +969,13 @@ def upload_chunk():
         _ccod_path = dest
         _ccod_row_count = _count_csv_rows(dest)
         _save_row_count(dest, _ccod_row_count)
+        _trigger_index_build(dest, "ccod")
         return jsonify({"status": "ok", "type": "CCOD", "records": _ccod_row_count, "filename": filename})
     elif "OCOD" in fn_upper:
         _ocod_path = dest
         _ocod_row_count = _count_csv_rows(dest)
         _save_row_count(dest, _ocod_row_count)
+        _trigger_index_build(dest, "ocod")
         return jsonify({"status": "ok", "type": "OCOD", "records": _ocod_row_count, "filename": filename})
     return jsonify({"status": "ok", "type": "unknown", "filename": filename})
 
@@ -886,10 +1038,12 @@ def load_from_url():
         _ccod_path = dest
         _ccod_row_count = _count_csv_rows(dest)
         _save_row_count(dest, _ccod_row_count)
+        _trigger_index_build(dest, "ccod")
         return jsonify({"status": "ok", "type": "CCOD", "records": _ccod_row_count, "filename": filename})
     _ocod_path = dest
     _ocod_row_count = _count_csv_rows(dest)
     _save_row_count(dest, _ocod_row_count)
+    _trigger_index_build(dest, "ocod")
     return jsonify({"status": "ok", "type": "OCOD", "records": _ocod_row_count, "filename": filename})
 
 
@@ -997,6 +1151,7 @@ def _auto_load_from_env():
                 else:
                     _ocod_path = dest
                     _ocod_row_count = _read_row_count(dest)
+                _trigger_index_build(dest, ftype.lower())
                 continue
             print(f"[startup] Downloading {ftype} from Google Drive (id={gdrive_id})…")
             written, err = _gdrive_download(gdrive_id, dest)
@@ -1013,6 +1168,7 @@ def _auto_load_from_env():
                 _ocod_path = dest
                 _ocod_row_count = count
             print(f"[startup] {ftype} ready — {count:,} records")
+            _trigger_index_build(dest, ftype.lower())
 
     t = threading.Thread(target=_load, daemon=True)
     t.start()
