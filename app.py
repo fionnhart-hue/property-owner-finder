@@ -74,7 +74,7 @@ def ch_get(endpoint, params=None):
     _rate_limit_ch()
     url = f"{COMPANIES_HOUSE_BASE}{endpoint}"
     try:
-        resp = requests.get(url, params=params, auth=(COMPANIES_HOUSE_API_KEY, ""), timeout=5)
+        resp = requests.get(url, params=params, auth=(COMPANIES_HOUSE_API_KEY, ""), timeout=(2, 3))
         if resp.status_code == 200:
             return resp.json(), None
         elif resp.status_code == 404:
@@ -840,26 +840,31 @@ def lookup_property():
             result["land_registry_gateway"] = gateway_results
 
     # ── Source 3: Companies House ──
+    # Run the entire CH block in a thread with a hard 20-second wall-clock cap.
+    # If it doesn't finish in time we still return the LR data immediately.
+    import concurrent.futures as _cf
+
     ch_companies = []
-    if COMPANIES_HOUSE_API_KEY:
-        # Hard budget covering ALL Companies House work for this lookup.
-        # Starts now so detail fetches + enrichment are all counted against it.
-        ch_budget = time.time() + 30
+    _ch_warnings = []
 
-        ch_companies = search_companies_by_address(address)
+    def _run_ch():
+        _companies = []
+        _warnings = []
+        ch_budget = time.time() + 20  # hard 20-second budget
 
-        # Fetch details for LR-confirmed company numbers not already in the CH list.
-        # Cap at 5 lookups and honour the budget to avoid runaway API calls.
+        _companies = search_companies_by_address(address)
+
+        # Fetch details for LR-confirmed company numbers not already in list.
         lr_detail_done = 0
         for reg_no in lr_company_numbers:
-            if lr_detail_done >= 5 or time.time() > ch_budget:
+            if lr_detail_done >= 3 or time.time() > ch_budget:
                 break
-            if any(c["company_number"] == reg_no for c in ch_companies):
+            if any(c["company_number"] == reg_no for c in _companies):
                 continue
             details, err = get_company_details(reg_no)
             lr_detail_done += 1
             if details:
-                ch_companies.append({
+                _companies.append({
                     "company_number": reg_no,
                     "company_name": details.get("company_name", ""),
                     "company_status": details.get("company_status", ""),
@@ -870,23 +875,22 @@ def lookup_property():
                     "source": "land_registry_owner",
                 })
 
-        # Sort: LR-confirmed owners first, then CH address-matched companies
-        ch_companies.sort(key=lambda c: 0 if c.get("source") == "land_registry_owner" else 1)
+        _companies.sort(key=lambda c: 0 if c.get("source") == "land_registry_owner" else 1)
 
-        all_people = {}
-        lr_enriched = 0   # cap LR owner enrichment too
-        ch_addr_enriched = 0  # cap CH-address enrichment
-        for company in ch_companies:
+        _all_people = {}
+        lr_enriched = 0
+        ch_addr_enriched = 0
+        for company in _companies:
             if time.time() > ch_budget:
                 company["officers"] = []
                 company["pscs"] = []
                 continue
             is_lr_owner = company.get("source") == "land_registry_owner"
-            if is_lr_owner and lr_enriched >= 5:
+            if is_lr_owner and lr_enriched >= 3:
                 company["officers"] = []
                 company["pscs"] = []
                 continue
-            if not is_lr_owner and ch_addr_enriched >= 3:
+            if not is_lr_owner and ch_addr_enriched >= 2:
                 company["officers"] = []
                 company["pscs"] = []
                 continue
@@ -894,12 +898,12 @@ def lookup_property():
             cn = company["company_number"]
             officers, err = get_company_officers(cn)
             if err:
-                result["warnings"].append(f"Officers for {cn}: {err}")
+                _warnings.append(f"Officers for {cn}: {err}")
             company["officers"] = officers
 
             pscs, err = get_company_pscs(cn)
             if err:
-                result["warnings"].append(f"PSCs for {cn}: {err}")
+                _warnings.append(f"PSCs for {cn}: {err}")
             company["pscs"] = pscs
 
             if is_lr_owner:
@@ -909,18 +913,37 @@ def lookup_property():
 
             for officer in officers:
                 name = officer["name"]
-                if name not in all_people:
-                    all_people[name] = {"name": name, "roles": [], "companies": []}
-                all_people[name]["roles"].append(officer["role"])
-                all_people[name]["companies"].append(company["company_name"])
+                if name not in _all_people:
+                    _all_people[name] = {"name": name, "roles": [], "companies": []}
+                _all_people[name]["roles"].append(officer["role"])
+                _all_people[name]["companies"].append(company["company_name"])
 
             for psc in pscs:
                 name = psc["name"]
-                if name not in all_people:
-                    all_people[name] = {"name": name, "roles": [], "companies": []}
-                all_people[name]["roles"].append("Person with Significant Control")
-                if company["company_name"] not in all_people[name]["companies"]:
-                    all_people[name]["companies"].append(company["company_name"])
+                if name not in _all_people:
+                    _all_people[name] = {"name": name, "roles": [], "companies": []}
+                _all_people[name]["roles"].append("Person with Significant Control")
+                if company["company_name"] not in _all_people[name]["companies"]:
+                    _all_people[name]["companies"].append(company["company_name"])
+
+        return _companies, _all_people, _warnings
+
+    if COMPANIES_HOUSE_API_KEY:
+        with _cf.ThreadPoolExecutor(max_workers=1) as _executor:
+            _future = _executor.submit(_run_ch)
+            try:
+                ch_companies, _ch_people_map, _ch_warnings = _future.result(timeout=22)
+            except _cf.TimeoutError:
+                ch_companies = []
+                _ch_people_map = {}
+                _ch_warnings = ["Companies House lookup timed out — try again for enrichment."]
+                result["warnings"].extend(_ch_warnings)
+            except Exception as _e:
+                ch_companies = []
+                _ch_people_map = {}
+                _ch_warnings = []
+
+        all_people = _ch_people_map
 
         for name, person in all_people.items():
             person["linkedin_search"] = generate_linkedin_search(
