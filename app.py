@@ -798,16 +798,9 @@ def _canonical_name(raw_name):
 
 def generate_linkedin_search(person_name, company_name=None, location="London"):
     display_name = _format_ch_name(person_name)
-    query_parts = [f'site:linkedin.com/in "{display_name}"']
-    if company_name:
-        # Title-case the company name (CH stores it in ALL CAPS).
-        # Don't quote it — holding/shell companies rarely appear verbatim on
-        # LinkedIn profiles, so treat it as a soft hint rather than exact match.
-        query_parts.append(company_name.title())
-    if location:
-        query_parts.append(f'"{location}"')
-    query = " ".join(query_parts)
-    return f"https://www.google.com/search?q={urllib.parse.quote_plus(query)}"
+    # Use LinkedIn's own people search — more reliable than Google site: searches.
+    keywords = display_name
+    return f"https://www.linkedin.com/search/results/people/?keywords={urllib.parse.quote_plus(keywords)}&origin=GLOBAL_SEARCH_HEADER"
 
 
 # ── API Routes ─────────────────────────────────────────────────────────────────
