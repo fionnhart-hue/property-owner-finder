@@ -15,9 +15,15 @@ import re
 import csv
 import json
 import time
+import socket
 import urllib.parse
 from pathlib import Path
 from werkzeug.utils import secure_filename
+
+# Hard global socket timeout — ensures every socket in the process (including
+# requests/urllib3) has a maximum wait even if per-call timeouts are bypassed
+# by network-level stalls in Railway's environment.
+socket.setdefaulttimeout(5)
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 import requests
@@ -852,10 +858,6 @@ def lookup_property():
             result["land_registry_gateway"] = gateway_results
 
     # ── Source 3: Companies House ──
-    # Run the entire CH block in a thread with a hard 20-second wall-clock cap.
-    # If it doesn't finish in time we still return the LR data immediately.
-    import concurrent.futures as _cf
-
     ch_companies = []
     _ch_warnings = []
 
@@ -940,40 +942,50 @@ def lookup_property():
 
         return _companies, _all_people, _warnings
 
+    import threading as _th
+    ch_companies = []
+    all_people = {}
+
     if COMPANIES_HOUSE_API_KEY and not skip_ch:
-        # IMPORTANT: do NOT use the context-manager form of ThreadPoolExecutor —
-        # its __exit__ calls shutdown(wait=True) which blocks until the thread
-        # finishes regardless of the timeout on result().  Instead, call
-        # shutdown(wait=False) ourselves so we truly abandon the thread if it
-        # runs over time.
-        _executor = _cf.ThreadPoolExecutor(max_workers=1)
-        _future = _executor.submit(_run_ch)
-        try:
-            ch_companies, _ch_people_map, _ch_warnings = _future.result(timeout=22)
-        except _cf.TimeoutError:
-            ch_companies = []
-            _ch_people_map = {}
-            _ch_warnings = ["Companies House lookup timed out — try again for enrichment."]
-            result["warnings"].extend(_ch_warnings)
-        except Exception as _e:
-            ch_companies = []
-            _ch_people_map = {}
-            _ch_warnings = []
-        finally:
-            _executor.shutdown(wait=False)  # abandon thread, don't block
+        # Run CH enrichment in a daemon thread and wait at most 12 seconds.
+        # threading.Thread.join(timeout) is the simplest reliable cap —
+        # it uses a C-level condition wait and returns regardless of what
+        # the thread is doing.  The daemon thread continues in the background
+        # after we move on (it will die when the process exits).
+        _ch_result = {"companies": [], "people": {}, "warnings": []}
 
-        all_people = _ch_people_map
+        def _ch_worker():
+            try:
+                companies, people, warnings = _run_ch()
+                _ch_result["companies"] = companies
+                _ch_result["people"] = people
+                _ch_result["warnings"] = warnings
+            except Exception:
+                pass
 
-        for name, person in all_people.items():
-            person["linkedin_search"] = generate_linkedin_search(
-                name,
-                company_name=person["companies"][0] if person["companies"] else None,
+        _t = _th.Thread(target=_ch_worker, daemon=True)
+        _t.start()
+        _t.join(timeout=12)  # wait at most 12 s for CH enrichment
+
+        ch_companies = _ch_result["companies"]
+        all_people = _ch_result["people"]
+        if _ch_result["warnings"]:
+            result["warnings"].extend(_ch_result["warnings"])
+        if _t.is_alive():
+            result["warnings"].append(
+                "Companies House enrichment still running — showing partial results."
             )
-
-        result["companies"] = ch_companies
-        result["people"] = list(all_people.values())
-    else:
+    elif not COMPANIES_HOUSE_API_KEY:
         result["warnings"].append("Companies House API key not set. Set COMPANIES_HOUSE_API_KEY for company lookups.")
+
+    for name, person in all_people.items():
+        person["linkedin_search"] = generate_linkedin_search(
+            name,
+            company_name=person["companies"][0] if person["companies"] else None,
+        )
+
+    result["companies"] = ch_companies
+    result["people"] = list(all_people.values())
 
     # ── Cross-reference ──
     result["insights"] = cross_reference_results(ch_companies, lr_results)
