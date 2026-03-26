@@ -289,8 +289,13 @@ def _search_csv_indexed(path, index, address, source_name):
     Opens the file only for the rows matching the queried postcode.
     Falls back to streaming scan if no postcode in address.
     """
-    if not path or not path.exists() or not index:
-        return _search_csv(path, address, source_name)
+    if not path or not path.exists():
+        return []
+    if not index:
+        # Index not built yet — file is still downloading or being indexed.
+        # Do NOT fall back to _search_csv: scanning a partially-written
+        # multi-GB file is CPU-intensive and blocks all gunicorn threads.
+        return []
 
     postcode = extract_postcode(address)
     if not postcode:
@@ -479,8 +484,8 @@ def search_ccod_ocod(address):
         if path:
             if index:
                 results.extend(_search_csv_indexed(path, index, address, source_name))
-            else:
-                results.extend(_search_csv(path, address, source_name))
+            # If index not built yet (file downloading), skip — never fall back to
+            # full scan of a partially-written file as that blocks all threads.
 
     results.sort(key=lambda x: x["match_score"], reverse=True)
     return results[:10]
