@@ -127,7 +127,7 @@ def address_match_score(query_address, candidate_address):
             score += 2
 
     # House/building number check.
-    # Strip the postcode portion so we don't accidentally match on postcode digits.
+    # Strip the postcode so we don't accidentally match on postcode digits.
     pc_pattern = r'[A-Za-z]{1,2}\d[A-Za-z\d]?\s*\d[A-Za-z]{2}'
     q_no_pc = re.sub(pc_pattern, '', q, flags=re.IGNORECASE).strip()
     c_no_pc = re.sub(pc_pattern, '', c, flags=re.IGNORECASE).strip()
@@ -135,15 +135,20 @@ def address_match_score(query_address, candidate_address):
     q_num_m = re.search(r'\b(\d+[a-z]?)\b', q_no_pc)
     c_num_m = re.search(r'\b(\d+[a-z]?)\b', c_no_pc)
     if q_num_m and c_num_m:
-        if q_num_m.group(1) == c_num_m.group(1):
-            score += 2   # bonus for correct number
+        q_num = q_num_m.group(1)
+        c_num = c_num_m.group(1)
+        if q_num == c_num:
+            score += 2   # exact first-number match
+        elif re.search(r'\b' + re.escape(q_num) + r'\b', c_no_pc):
+            pass  # query number appears in a range e.g. "211, 213 and 219" — no penalty
         else:
-            score -= 4   # strong penalty for wrong number
+            return 0  # hard fail — clearly a different property number
 
-    # Street-level word overlap
-    q_words = set(w for w in q.split() if len(w) > 2)
-    c_words = set(w for w in c.split() if len(w) > 2)
-    # Remove very common words
+    # Street-level word overlap.
+    # Use postcode-stripped versions so shared postcode tokens (e.g. "w11", "1lu")
+    # don't inflate the score and let nearby-but-wrong addresses sneak through.
+    q_words = set(w for w in q_no_pc.split() if len(w) > 2)
+    c_words = set(w for w in c_no_pc.split() if len(w) > 2)
     common = {"london", "street", "road", "lane", "avenue", "place", "court",
               "house", "floor", "unit", "ground", "first", "second", "third",
               "england", "united", "kingdom", "greater"}
