@@ -299,12 +299,23 @@
             padding: 14px 16px; margin-bottom: 10px;
             border: 1px solid #d4ebd4;
         }
+        .lr-owner-card.freehold {
+            background: #fffbf0; border: 2px solid #f5a623;
+            box-shadow: 0 2px 8px rgba(245,166,35,0.15);
+        }
         .lr-owner-card .lr-label {
             font-size: 10px; font-weight: 700; color: #2a7a2a;
             text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 5px;
         }
+        .lr-owner-card.freehold .lr-label { color: #b87a00; }
         .lr-owner-card .lr-name  { font-weight: 700; font-size: 14px; color: #111; }
         .lr-owner-card .lr-meta  { font-size: 12px; color: #5a9a5a; margin-top: 3px; }
+        .freehold-badge {
+            display: inline-block; background: #f5a623; color: #fff;
+            font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
+            text-transform: uppercase; padding: 2px 7px; border-radius: 4px;
+            margin-left: 8px; vertical-align: middle;
+        }
 
         .company-card {
             background: #fafafa; border-radius: var(--radius);
@@ -601,10 +612,11 @@ function renderOneResult(r) {
     if (lrCount > 0) {
         body += `<div class="section-title">Land Registry Ownership Data (${lrCount} title${lrCount === 1 ? '' : 's'})</div>`;
         for (const lr of r.land_registry_data) {
+            const isFreehold = (lr.tenure || '').toLowerCase() === 'freehold';
             for (const prop of (lr.proprietors || [])) {
-                body += `<div class="lr-owner-card">`;
+                body += `<div class="lr-owner-card${isFreehold ? ' freehold' : ''}">`;
                 body += `<div class="lr-label">${escHtml(lr.source)} — Title ${escHtml(lr.title_number)} (${escHtml(lr.tenure || 'Unknown tenure')})</div>`;
-                body += `<div class="lr-name">${escHtml(prop.name)}</div>`;
+                body += `<div class="lr-name">${escHtml(prop.name)}${isFreehold ? '<span class="freehold-badge">Freeholder</span>' : ''}</div>`;
                 const metaParts = [];
                 if (prop.company_reg_no) metaParts.push(`Co. ${prop.company_reg_no}`);
                 if (prop.category) metaParts.push(prop.category);
