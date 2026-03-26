@@ -564,6 +564,14 @@ def lr_business_gateway_search(address):
 
 # ── Companies House Lookups ────────────────────────────────────────────────────
 
+# Company statuses that mean the company no longer exists / actively operates
+_INACTIVE_STATUSES = {
+    "dissolved", "liquidation", "receivership",
+    "converted-closed", "closed", "voluntary-arrangement",
+    "insolvency-proceedings",
+}
+
+
 def search_companies_by_address(address):
     results = []
     postcode = extract_postcode(address)
@@ -639,7 +647,9 @@ def search_companies_by_address(address):
         cn = r["company_number"]
         if cn not in seen:
             seen.add(cn)
-            unique.append(r)
+            # Skip dissolved / inactive companies — they can't currently own anything
+            if r.get("company_status", "").lower() not in _INACTIVE_STATUSES:
+                unique.append(r)
 
     return unique[:10]
 
@@ -872,10 +882,13 @@ def lookup_property():
             details, err = get_company_details(reg_no)
             lr_detail_done += 1
             if details:
+                status = details.get("company_status", "").lower()
+                if status in _INACTIVE_STATUSES:
+                    continue  # dissolved LR-listed company — no longer an active owner
                 _companies.append({
                     "company_number": reg_no,
                     "company_name": details.get("company_name", ""),
-                    "company_status": details.get("company_status", ""),
+                    "company_status": status,
                     "registered_address": details.get("registered_office_address", {}),
                     "date_of_creation": details.get("date_of_creation"),
                     "company_type": details.get("type", ""),
