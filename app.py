@@ -800,12 +800,19 @@ def status():
     })
 
 
+@app.route("/api/ping")
+def ping():
+    """Instant health-check — returns immediately with no logic."""
+    return jsonify({"pong": True, "ts": time.time()})
+
+
 @app.route("/api/lookup", methods=["POST"])
 def lookup_property():
     data = request.json
     address = data.get("address", "").strip()
     if not address:
         return jsonify({"error": "Address is required"}), 400
+    skip_ch = data.get("skip_ch", False) or request.args.get("skip_ch") == "1"
 
     result = {
         "address": address,
@@ -928,7 +935,7 @@ def lookup_property():
 
         return _companies, _all_people, _warnings
 
-    if COMPANIES_HOUSE_API_KEY:
+    if COMPANIES_HOUSE_API_KEY and not skip_ch:
         # IMPORTANT: do NOT use the context-manager form of ThreadPoolExecutor —
         # its __exit__ calls shutdown(wait=True) which blocks until the thread
         # finishes regardless of the timeout on result().  Instead, call
