@@ -929,19 +929,26 @@ def lookup_property():
         return _companies, _all_people, _warnings
 
     if COMPANIES_HOUSE_API_KEY:
-        with _cf.ThreadPoolExecutor(max_workers=1) as _executor:
-            _future = _executor.submit(_run_ch)
-            try:
-                ch_companies, _ch_people_map, _ch_warnings = _future.result(timeout=22)
-            except _cf.TimeoutError:
-                ch_companies = []
-                _ch_people_map = {}
-                _ch_warnings = ["Companies House lookup timed out — try again for enrichment."]
-                result["warnings"].extend(_ch_warnings)
-            except Exception as _e:
-                ch_companies = []
-                _ch_people_map = {}
-                _ch_warnings = []
+        # IMPORTANT: do NOT use the context-manager form of ThreadPoolExecutor —
+        # its __exit__ calls shutdown(wait=True) which blocks until the thread
+        # finishes regardless of the timeout on result().  Instead, call
+        # shutdown(wait=False) ourselves so we truly abandon the thread if it
+        # runs over time.
+        _executor = _cf.ThreadPoolExecutor(max_workers=1)
+        _future = _executor.submit(_run_ch)
+        try:
+            ch_companies, _ch_people_map, _ch_warnings = _future.result(timeout=22)
+        except _cf.TimeoutError:
+            ch_companies = []
+            _ch_people_map = {}
+            _ch_warnings = ["Companies House lookup timed out — try again for enrichment."]
+            result["warnings"].extend(_ch_warnings)
+        except Exception as _e:
+            ch_companies = []
+            _ch_people_map = {}
+            _ch_warnings = []
+        finally:
+            _executor.shutdown(wait=False)  # abandon thread, don't block
 
         all_people = _ch_people_map
 
