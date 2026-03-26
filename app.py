@@ -15,15 +15,9 @@ import re
 import csv
 import json
 import time
-import socket
 import urllib.parse
 from pathlib import Path
 from werkzeug.utils import secure_filename
-
-# Hard global socket timeout — ensures every socket in the process (including
-# requests/urllib3) has a maximum wait even if per-call timeouts are bypassed
-# by network-level stalls in Railway's environment.
-socket.setdefaulttimeout(5)
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 import requests
