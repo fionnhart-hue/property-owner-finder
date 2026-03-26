@@ -577,6 +577,17 @@ _INACTIVE_STATUSES = {
 }
 
 
+def _reg_addr_to_str(reg_addr):
+    """Flatten a CH registered_office_address dict into a single string for matching."""
+    return ", ".join(filter(None, [
+        reg_addr.get("premises", ""),
+        reg_addr.get("address_line_1", ""),
+        reg_addr.get("address_line_2", ""),
+        reg_addr.get("locality", ""),
+        reg_addr.get("postal_code", ""),
+    ]))
+
+
 def search_companies_by_address(address):
     results = []
     postcode = extract_postcode(address)
@@ -589,21 +600,9 @@ def search_companies_by_address(address):
         if data and "items" in data:
             for company in data["items"]:
                 reg_addr = company.get("registered_office_address", {})
-                reg_str = " ".join(filter(None, [
-                    reg_addr.get("address_line_1", ""),
-                    reg_addr.get("address_line_2", ""),
-                    reg_addr.get("postal_code", ""),
-                ])).upper()
-
-                score = 0
-                if postcode and postcode.replace(" ", "") in reg_str.replace(" ", ""):
-                    score += 2
-                street_words = [w for w in street.upper().split() if len(w) > 2]
-                for word in street_words:
-                    if word in reg_str:
-                        score += 1
-
-                if score >= 2:
+                candidate = _reg_addr_to_str(reg_addr)
+                score = address_match_score(address, candidate)
+                if score >= 4:
                     results.append({
                         "company_number": company.get("company_number"),
                         "company_name": company.get("company_name"),
@@ -620,21 +619,9 @@ def search_companies_by_address(address):
         if data and "items" in data:
             for company in data["items"]:
                 reg_addr = company.get("registered_office_address", {})
-                reg_str = " ".join(filter(None, [
-                    reg_addr.get("address_line_1", ""),
-                    reg_addr.get("address_line_2", ""),
-                    reg_addr.get("postal_code", ""),
-                ])).upper()
-
-                score = 0
-                if postcode and postcode.replace(" ", "") in reg_str.replace(" ", ""):
-                    score += 3
-                street_words = [w for w in street.upper().split() if len(w) > 2]
-                for word in street_words:
-                    if word in reg_str:
-                        score += 1
-
-                if score >= 2:
+                candidate = _reg_addr_to_str(reg_addr)
+                score = address_match_score(address, candidate)
+                if score >= 4:
                     results.append({
                         "company_number": company.get("company_number"),
                         "company_name": company.get("company_name"),
