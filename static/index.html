@@ -674,7 +674,7 @@ function renderOneResult(r) {
             const roles = [...new Set(p.roles || [])].join(', ');
             const companies = (p.companies || []).join(', ');
             body += `<div class="person-row">`;
-            body += `<div class="person-info"><div class="person-name">${escHtml(p.name)}</div>`;
+            body += `<div class="person-info"><div class="person-name">${escHtml(p.display_name || p.name)}</div>`;
             body += `<div class="person-role">${escHtml(roles)}${companies ? ' at ' + escHtml(companies) : ''}</div></div>`;
             body += `<div class="person-actions">`;
             if (p.linkedin_search) body += `<a href="${p.linkedin_search}" target="_blank" class="link-btn linkedin">LinkedIn</a>`;
@@ -745,7 +745,7 @@ function exportCSV() {
                     r.address, r.postcode || '',
                     '', '', '', '',
                     (p.companies || []).join('; '), '', '',
-                    p.name, (p.roles || []).join('; '),
+                    p.display_name || p.name, (p.roles || []).join('; '),
                     p.linkedin_search || '', lrLink,
                 ]);
             }

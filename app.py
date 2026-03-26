@@ -780,10 +780,22 @@ def generate_land_registry_links(address):
     return links
 
 
+def _format_ch_name(raw_name):
+    """
+    Convert Companies House name format ("SMITH, John David") to
+    natural order ("John David Smith") in title case, suitable for search.
+    """
+    if "," in raw_name:
+        surname, _, forenames = raw_name.partition(",")
+        name = f"{forenames.strip()} {surname.strip()}"
+    else:
+        name = raw_name
+    return name.title()
+
+
 def generate_linkedin_search(person_name, company_name=None, location="London"):
-    query_parts = ['site:linkedin.com/in/', f'"{person_name}"']
-    if company_name:
-        query_parts.append(f'"{company_name}"')
+    display_name = _format_ch_name(person_name)
+    query_parts = [f'site:linkedin.com/in/ "{display_name}"']
     if location:
         query_parts.append(f'"{location}"')
     query = " ".join(query_parts)
@@ -986,6 +998,7 @@ def lookup_property():
         result["warnings"].append("Companies House API key not set. Set COMPANIES_HOUSE_API_KEY for company lookups.")
 
     for name, person in all_people.items():
+        person["display_name"] = _format_ch_name(name)
         person["linkedin_search"] = generate_linkedin_search(
             name,
             company_name=person["companies"][0] if person["companies"] else None,
