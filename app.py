@@ -875,13 +875,20 @@ def lookup_property():
     lr_results = search_ccod_ocod(address)
     result["land_registry_data"] = lr_results
 
-    # If we found LR data, also look up those companies on Companies House
+    # If we found LR data, also look up those companies on Companies House.
+    # Collect both reg numbers AND names — overseas companies (OCOD) store their
+    # home-country reg number, not the UK "OE" number, so reg_no lookups often
+    # fail for them.  Name-based search is the fallback.
     lr_company_numbers = set()
+    lr_proprietor_names = set()
     for lr in lr_results:
         for prop in lr.get("proprietors", []):
             reg_no = prop.get("company_reg_no", "").strip()
             if reg_no:
                 lr_company_numbers.add(reg_no)
+            name = prop.get("name", "").strip()
+            if name:
+                lr_proprietor_names.add(name)
 
     # ── Source 2: Land Registry Business Gateway (if configured) ──
     if LR_BUSINESS_GATEWAY_USER:
@@ -914,7 +921,7 @@ def lookup_property():
             if details:
                 status = details.get("company_status", "").lower()
                 if status in _INACTIVE_STATUSES:
-                    continue  # dissolved LR-listed company — no longer an active owner
+                    continue
                 _companies.append({
                     "company_number": reg_no,
                     "company_name": details.get("company_name", ""),
@@ -925,6 +932,41 @@ def lookup_property():
                     "relevance_score": 10,
                     "source": "land_registry_owner",
                 })
+
+        # Fallback: for LR proprietors that didn't resolve by reg number
+        # (common for OCOD overseas companies — they store home-country numbers,
+        # not the UK "OE" CH number), search CH by exact company name.
+        already_named = {c["company_name"].upper() for c in _companies}
+        for prop_name in lr_proprietor_names:
+            if time.time() > ch_budget:
+                break
+            if prop_name.upper() in already_named:
+                continue
+            data, _ = ch_get("/search/companies", params={"q": prop_name, "items_per_page": 5})
+            if not data or "items" not in data:
+                continue
+            for item in data["items"]:
+                if item.get("title", "").upper() == prop_name.upper():
+                    ch_num = item.get("company_number", "")
+                    if any(c["company_number"] == ch_num for c in _companies):
+                        break
+                    details, _ = get_company_details(ch_num)
+                    if details:
+                        status = details.get("company_status", "").lower()
+                        if status in _INACTIVE_STATUSES:
+                            break
+                        _companies.append({
+                            "company_number": ch_num,
+                            "company_name": details.get("company_name", ""),
+                            "company_status": status,
+                            "registered_address": details.get("registered_office_address", {}),
+                            "date_of_creation": details.get("date_of_creation"),
+                            "company_type": details.get("type", ""),
+                            "relevance_score": 10,
+                            "source": "land_registry_owner",
+                        })
+                        already_named.add(prop_name.upper())
+                    break
 
         _companies.sort(key=lambda c: 0 if c.get("source") == "land_registry_owner" else 1)
 
