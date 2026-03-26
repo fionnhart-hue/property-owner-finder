@@ -796,6 +796,8 @@ def _format_ch_name(raw_name):
 def generate_linkedin_search(person_name, company_name=None, location="London"):
     display_name = _format_ch_name(person_name)
     query_parts = [f'site:linkedin.com/in/ "{display_name}"']
+    if company_name:
+        query_parts.append(f'"{company_name}"')
     if location:
         query_parts.append(f'"{location}"')
     query = " ".join(query_parts)
