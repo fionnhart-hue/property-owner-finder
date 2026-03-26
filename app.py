@@ -798,8 +798,9 @@ def _canonical_name(raw_name):
 
 def generate_linkedin_search(person_name, company_name=None, location="London"):
     display_name = _format_ch_name(person_name)
-    # Use LinkedIn's own people search — more reliable than Google site: searches.
-    keywords = display_name
+    # Search by name + location only. Company names from CH are usually shell/holding
+    # companies that nobody lists on LinkedIn — including them kills results.
+    keywords = f"{display_name} {location}" if location else display_name
     return f"https://www.linkedin.com/search/results/people/?keywords={urllib.parse.quote_plus(keywords)}&origin=GLOBAL_SEARCH_HEADER"
 
 
