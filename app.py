@@ -1098,7 +1098,11 @@ def upload_chunk():
 
 @app.route("/api/load-from-url", methods=["POST"])
 def load_from_url():
-    global _ccod_path, _ocod_path, _ccod_row_count, _ocod_row_count
+    """
+    Kick off a background download of a CCOD or OCOD CSV from Google Drive.
+    Returns immediately — the download + index build happen in a daemon thread
+    so no gunicorn thread is ever tied up for the full 9-minute download.
+    """
     body = request.get_json(force=True, silent=True) or {}
     url = body.get("url", "").strip()
     ftype = body.get("type", "").lower()
@@ -1109,58 +1113,60 @@ def load_from_url():
     if not gd:
         return jsonify({"error": "Could not find a Google Drive file ID in that URL"}), 400
     file_id = gd.group(1)
-    session = requests.Session()
-    session.headers["User-Agent"] = "Mozilla/5.0"
-    base = "https://drive.google.com/uc"
-    params = {"export": "download", "id": file_id}
-    try:
-        r1 = session.get(base, params=params, timeout=60)
-        r1.raise_for_status()
-    except Exception as exc:
-        return jsonify({"error": "Could not reach Google Drive: " + str(exc)}), 502
-    confirm = None
-    for k, v in session.cookies.items():
-        if "download_warning" in k:
-            confirm = v
-            break
-    if confirm:
-        params["confirm"] = confirm
-    elif "text/html" in r1.headers.get("Content-Type", ""):
-        base = "https://drive.usercontent.google.com/download"
-        params["confirm"] = "t"
-        params["authuser"] = "0"
-    try:
-        resp = session.get(base, params=params, stream=True, timeout=600)
-        resp.raise_for_status()
-    except Exception as exc:
-        return jsonify({"error": "Download failed: " + str(exc)}), 502
-    if ftype == "ccod":
-        filename = "CCOD_data.csv"
-    else:
-        filename = "OCOD_data.csv"
-    data_dir = Path(DATA_DIR)
-    data_dir.mkdir(parents=True, exist_ok=True)
-    dest = data_dir / filename
-    written = 0
-    with open(str(dest), "wb") as f:
-        for chunk in resp.iter_content(chunk_size=8 * 1024 * 1024):
-            if chunk:
-                f.write(chunk)
-                written += len(chunk)
-    if written < 1000:
-        return jsonify({"error": "Downloaded file too small (" + str(written) + " bytes). Check sharing is set to Anyone with the link."}), 502
-    # Count rows by streaming (no RAM spike) and cache to sidecar file
-    if ftype == "ccod":
-        _ccod_path = dest
-        _ccod_row_count = _count_csv_rows(dest)
-        _save_row_count(dest, _ccod_row_count)
-        _trigger_index_build(dest, "ccod")
-        return jsonify({"status": "ok", "type": "CCOD", "records": _ccod_row_count, "filename": filename})
-    _ocod_path = dest
-    _ocod_row_count = _count_csv_rows(dest)
-    _save_row_count(dest, _ocod_row_count)
-    _trigger_index_build(dest, "ocod")
-    return jsonify({"status": "ok", "type": "OCOD", "records": _ocod_row_count, "filename": filename})
+
+    def _do_download():
+        global _ccod_path, _ocod_path, _ccod_row_count, _ocod_row_count
+        try:
+            session = requests.Session()
+            session.headers["User-Agent"] = "Mozilla/5.0"
+            base = "https://drive.google.com/uc"
+            params = {"export": "download", "id": file_id}
+            r1 = session.get(base, params=params, timeout=60)
+            r1.raise_for_status()
+            confirm = None
+            for k, v in session.cookies.items():
+                if "download_warning" in k:
+                    confirm = v
+                    break
+            if confirm:
+                params["confirm"] = confirm
+            elif "text/html" in r1.headers.get("Content-Type", ""):
+                base = "https://drive.usercontent.google.com/download"
+                params["confirm"] = "t"
+                params["authuser"] = "0"
+            resp = session.get(base, params=params, stream=True, timeout=600)
+            resp.raise_for_status()
+            filename = "CCOD_data.csv" if ftype == "ccod" else "OCOD_data.csv"
+            data_dir = Path(DATA_DIR)
+            data_dir.mkdir(parents=True, exist_ok=True)
+            dest = data_dir / filename
+            written = 0
+            with open(str(dest), "wb") as f:
+                for chunk in resp.iter_content(chunk_size=8 * 1024 * 1024):
+                    if chunk:
+                        f.write(chunk)
+                        written += len(chunk)
+            if written < 1000:
+                print(f"[load] {ftype.upper()} download too small ({written} bytes)")
+                return
+            if ftype == "ccod":
+                _ccod_path = dest
+                _ccod_row_count = _count_csv_rows(dest)
+                _save_row_count(dest, _ccod_row_count)
+                _trigger_index_build(dest, "ccod")
+            else:
+                _ocod_path = dest
+                _ocod_row_count = _count_csv_rows(dest)
+                _save_row_count(dest, _ocod_row_count)
+                _trigger_index_build(dest, "ocod")
+            print(f"[load] {ftype.upper()} ready — {written:,} bytes")
+        except Exception as exc:
+            print(f"[load] {ftype.upper()} download failed: {exc}")
+
+    import threading as _threading
+    _threading.Thread(target=_do_download, daemon=True).start()
+    return jsonify({"status": "started", "type": ftype.upper(),
+                    "message": "Download started in background. Poll /api/status to track progress."})
 
 
 @app.route("/api/debug-csv-headers")
