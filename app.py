@@ -798,9 +798,14 @@ def _canonical_name(raw_name):
 
 def generate_linkedin_search(person_name, company_name=None, location="London"):
     display_name = _format_ch_name(person_name)
-    # Search by name + location only. Company names from CH are usually shell/holding
-    # companies that nobody lists on LinkedIn — including them kills results.
-    keywords = f"{display_name} {location}" if location else display_name
+    # Name + company name + location. Company name is useful context; skip location
+    # fallback if no company. Officer role/position titles from CH are not useful.
+    parts = [display_name]
+    if company_name:
+        parts.append(company_name.title())
+    if location:
+        parts.append(location)
+    keywords = " ".join(parts)
     return f"https://www.linkedin.com/search/results/people/?keywords={urllib.parse.quote_plus(keywords)}&origin=GLOBAL_SEARCH_HEADER"
 
 
