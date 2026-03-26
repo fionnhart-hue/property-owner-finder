@@ -785,17 +785,28 @@ def generate_land_registry_links(address):
     return links
 
 
+_HONORIFICS = re.compile(
+    r'^\s*(mr\.?|mrs\.?|ms\.?|miss|dr\.?|prof\.?|sir|lord|lady)\s+',
+    re.IGNORECASE
+)
+
 def _format_ch_name(raw_name):
     """
     Convert Companies House name format ("SMITH, John David") to
-    natural order ("John David Smith") in title case, suitable for search.
+    natural order ("John David Smith") in title case, stripping honorifics.
     """
     if "," in raw_name:
         surname, _, forenames = raw_name.partition(",")
         name = f"{forenames.strip()} {surname.strip()}"
     else:
         name = raw_name
+    name = _HONORIFICS.sub('', name).strip()
     return name.title()
+
+
+def _canonical_name(raw_name):
+    """Normalised name for deduplication — stripped and lowercased."""
+    return _format_ch_name(raw_name).lower()
 
 
 def generate_linkedin_search(person_name, company_name=None, location="London"):
@@ -953,18 +964,20 @@ def lookup_property():
 
             for officer in officers:
                 name = officer["name"]
-                if name not in _all_people:
-                    _all_people[name] = {"name": name, "roles": [], "companies": []}
-                _all_people[name]["roles"].append(officer["role"])
-                _all_people[name]["companies"].append(company["company_name"])
+                key = _canonical_name(name)
+                if key not in _all_people:
+                    _all_people[key] = {"name": name, "roles": [], "companies": []}
+                _all_people[key]["roles"].append(officer["role"])
+                _all_people[key]["companies"].append(company["company_name"])
 
             for psc in pscs:
                 name = psc["name"]
-                if name not in _all_people:
-                    _all_people[name] = {"name": name, "roles": [], "companies": []}
-                _all_people[name]["roles"].append("Person with Significant Control")
-                if company["company_name"] not in _all_people[name]["companies"]:
-                    _all_people[name]["companies"].append(company["company_name"])
+                key = _canonical_name(name)
+                if key not in _all_people:
+                    _all_people[key] = {"name": name, "roles": [], "companies": []}
+                _all_people[key]["roles"].append("Person with Significant Control")
+                if company["company_name"] not in _all_people[key]["companies"]:
+                    _all_people[key]["companies"].append(company["company_name"])
 
         return _companies, _all_people, _warnings
 
